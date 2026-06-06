@@ -34,10 +34,11 @@ export class TomatoSettingTab extends PluginSettingTab {
     display(): void {
         const { containerEl } = this;
         containerEl.empty();
-        containerEl.createEl('h2', { text: 'Tomato Clock' });
+
+        new Setting(containerEl).setHeading().setName('Tomato Clock');
 
         // --- Durations ---
-        containerEl.createEl('h3', { text: 'Durations' });
+        new Setting(containerEl).setHeading().setName('Durations');
 
         new Setting(containerEl)
             .setName('Work duration (min)')
@@ -89,7 +90,7 @@ export class TomatoSettingTab extends PluginSettingTab {
                 }));
 
         // --- Behavior ---
-        containerEl.createEl('h3', { text: 'Behavior' });
+        new Setting(containerEl).setHeading().setName('Behavior');
 
         new Setting(containerEl)
             .setName('Auto-start next phase')
@@ -123,7 +124,7 @@ export class TomatoSettingTab extends PluginSettingTab {
                 }));
 
         // --- Log ---
-        containerEl.createEl('h3', { text: 'Log' });
+        new Setting(containerEl).setHeading().setName('Log');
 
         new Setting(containerEl)
             .setName('Log file path')

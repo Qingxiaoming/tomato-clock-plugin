@@ -22,23 +22,23 @@ export default class TomatoPlugin extends Plugin {
         });
 
         this.timer.onTick(s => this.onTick(s));
-        this.timer.onPhaseComplete((c, n) => this.onPhaseComplete(c, n));
+        this.timer.onPhaseComplete((c, n) => { void this.onPhaseComplete(c, n); });
 
         // Request OS notification permission on load (Electron / modern browsers)
         if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-            Notification.requestPermission();
+            void Notification.requestPermission();
         }
 
         // Register sidebar view
         this.registerView(VIEW_TYPE_Tomato, leaf => new TomatoTimerView(leaf, this));
 
         // Ribbon button
-        this.addRibbonIcon('timer', 'Tomato', () => this.activateView());
+        this.addRibbonIcon('timer', 'Tomato', () => { void this.activateView(); });
 
         // Status bar — always visible, zero-distraction time indicator
         this.statusBarEl = this.addStatusBarItem();
         this.statusBarEl.addClass('Tomato-statusbar');
-        this.statusBarEl.style.cursor = 'pointer';
+        this.statusBarEl.addClass('Tomato-clickable');
         this.registerDomEvent(this.statusBarEl, 'click', () => this.activateView());
         this.refreshStatusBar({ phase: 'idle', remainingSeconds: 0, isRunning: false });
 
@@ -59,7 +59,7 @@ export default class TomatoPlugin extends Plugin {
         // Watch log file changes → refresh history panel
         this.registerEvent(this.app.vault.on('modify', file => {
             if (normalizePath(file.path) === normalizePath(this.settings.logFile)) {
-                this.forEachView(v => v.refreshHistory());
+                this.forEachView(v => { void v.refreshHistory(); });
             }
         }));
 
@@ -131,7 +131,7 @@ export default class TomatoPlugin extends Plugin {
                 duration: this.settings.workMinutes,
             });
             await this.openLogForEditing();
-            this.forEachView(v => v.refreshHistory());
+            this.forEachView(v => { void v.refreshHistory(); });
         }
     }
 

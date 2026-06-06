@@ -44,7 +44,14 @@ jobs:
               run: |
                   tag="${GITHUB_REF#refs/tags/}"
 
-                  gh release create "$tag" \
-                    --title="$tag" \
-                    --draft \
-                    main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
+                  # List files to debug
+                  ls -la main.js manifest.json
+
+                  # Create release with assets
+                  if [ -f styles.css ]; then
+                    gh release create "$tag" --title="$tag" --draft \
+                      main.js manifest.json styles.css
+                  else
+                    gh release create "$tag" --title="$tag" --draft \
+                      main.js manifest.json
+                  fi
