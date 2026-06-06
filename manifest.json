@@ -1,7 +1,7 @@
 {
     "id": "tomato-clock",
     "name": "Tomato Clock",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "minAppVersion": "1.5.0",
     "description": "A Tomato timer with sidebar view, status bar display, OS notifications, and work session logging.",
     "author": "kkbin505",
