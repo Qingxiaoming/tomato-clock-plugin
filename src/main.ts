@@ -43,12 +43,10 @@ export default class TomatoPlugin extends Plugin {
         // Auto-save recovery every 10s
         this.recoveryService.startAutoSave();
 
-        // Prompt before closing if timer is running
-        this.registerDomEvent(window, 'beforeunload', (e: BeforeUnloadEvent) => {
+        // Save recovery on page unload without blocking Obsidian reload
+        this.registerDomEvent(window, 'beforeunload', () => {
             if (this.timer.getState().isRunning) {
                 void this.recoveryService.save();
-                e.preventDefault();
-                e.returnValue = '';
             }
         });
 
@@ -70,6 +68,7 @@ export default class TomatoPlugin extends Plugin {
         this.statusBarEl.addClass('Tomato-clickable');
         this.registerDomEvent(this.statusBarEl, 'click', () => this.activateView());
         this.refreshStatusBar({ phase: 'idle', remainingSeconds: 0, elapsedSeconds: 0, isRunning: false, mode: 'pomodoro' });
+        this.toggleStatusBar();
 
         // Command palette
         this.addCommand({
@@ -89,7 +88,6 @@ export default class TomatoPlugin extends Plugin {
             name: this.t('cmd.modePomodoro'),
             callback: () => {
                 this.timer.setMode('pomodoro');
-                this.timer.reset();
                 this.refreshAllViews();
             },
         });
@@ -98,7 +96,6 @@ export default class TomatoPlugin extends Plugin {
             name: this.t('cmd.modeStopwatch'),
             callback: () => {
                 this.timer.setMode('stopwatch');
-                this.timer.reset();
                 this.refreshAllViews();
             },
         });
@@ -108,7 +105,6 @@ export default class TomatoPlugin extends Plugin {
             callback: () => {
                 this.timer.setMode('countdown');
                 this.timer.setCountdownMinutes(this.settings.countdownMinutes);
-                this.timer.reset();
                 this.refreshAllViews();
             },
         });
@@ -149,6 +145,11 @@ export default class TomatoPlugin extends Plugin {
             autoStartNextPhase: this.settings.autoStartNextPhase,
             countdownMinutes: this.settings.countdownMinutes,
         });
+        this.toggleStatusBar();
+    }
+
+    toggleStatusBar(): void {
+        this.statusBarEl.style.display = this.settings.showStatusBar ? '' : 'none';
     }
 
     /** Open compact panel (default) */
@@ -166,7 +167,7 @@ export default class TomatoPlugin extends Plugin {
         }
     }
 
-    /** Open full panel */
+    /** Open full panel in the main tab area */
     async activateFullView(): Promise<void> {
         const { workspace } = this.app;
         const existing = workspace.getLeavesOfType(VIEW_TYPE_Tomato);
@@ -174,7 +175,7 @@ export default class TomatoPlugin extends Plugin {
             void workspace.revealLeaf(existing[0]);
             return;
         }
-        const leaf = workspace.getRightLeaf(false);
+        const leaf = workspace.getLeaf('tab');
         if (leaf) {
             await leaf.setViewState({ type: VIEW_TYPE_Tomato, active: true });
             void workspace.revealLeaf(leaf);
@@ -218,15 +219,24 @@ export default class TomatoPlugin extends Plugin {
                     startTime: this.timer.getSessionStartTime(),
                     endTime: nowTimeString(),
                     duration: durationMinutes,
-                    mode: this.timer.getMode(),
+                    mode: this.timer.getSessionStartMode(),
                     taskName: this.buildLogTaskName(),
                 });
             } catch (e) {
                 new Notice(`${this.t('notice.logWriteFailed')}: ${e instanceof Error ? e.message : String(e)}`, 6000);
             }
-            await this.openLogForEditing();
+            if (this.settings.openLogOnComplete) {
+                await this.openLogForEditing();
+            }
             for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato)) {
                 if (leaf.view instanceof TomatoTimerView) void leaf.view.refreshTabContent();
+            }
+            // Auto-reset for stopwatch/countdown and clear task/project
+            if (completed === 'stopwatch' || completed === 'countdown') {
+                this.timer.reset();
+                this.timer.setTaskName('');
+                this.timer.setCurrentProject('');
+                this.refreshAllViews();
             }
         }
     }

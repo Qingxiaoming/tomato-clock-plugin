@@ -20,6 +20,8 @@ export interface TomatoPluginSettings {
     countdownMinutes: number;
     language: Lang;
     projects: ProjectConfig[];
+    showStatusBar: boolean;
+    openLogOnComplete: boolean;
 }
 
 export const DEFAULT_SETTINGS: TomatoPluginSettings = {
@@ -35,6 +37,8 @@ export const DEFAULT_SETTINGS: TomatoPluginSettings = {
     countdownMinutes: 25,
     language: 'zh',
     projects: [],
+    showStatusBar: true,
+    openLogOnComplete: true,
 };
 
 export class TomatoSettingTab extends PluginSettingTab {
@@ -169,6 +173,17 @@ export class TomatoSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
+        new Setting(containerEl)
+            .setName(_t('settings.showStatusBar'))
+            .setDesc(_t('settings.showStatusBarDesc'))
+            .addToggle(t => t
+                .setValue(this.plugin.settings.showStatusBar)
+                .onChange(async v => {
+                    this.plugin.settings.showStatusBar = v;
+                    await this.plugin.saveSettings();
+                    this.plugin.applySettings();
+                }));
+
         // --- Log ---
         new Setting(containerEl).setHeading().setName(_t('settings.log'));
 
@@ -190,6 +205,16 @@ export class TomatoSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.enableDailyNoteLink)
                 .onChange(async v => {
                     this.plugin.settings.enableDailyNoteLink = v;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName(_t('settings.openLogOnComplete'))
+            .setDesc(_t('settings.openLogOnCompleteDesc'))
+            .addToggle(t => t
+                .setValue(this.plugin.settings.openLogOnComplete)
+                .onChange(async v => {
+                    this.plugin.settings.openLogOnComplete = v;
                     await this.plugin.saveSettings();
                 }));
 

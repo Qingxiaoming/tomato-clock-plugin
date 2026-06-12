@@ -107,26 +107,29 @@ export class TomatoTimerCompactView extends ItemView {
         });
         this.registerDomEvent(this.resetBtn, 'click', () => this.plugin.timer.reset());
 
-        // Far right: vertical mode buttons
+        // Far right: single mode toggle button (cycles through 3 states)
         const modeCol = mainRow.createDiv({ cls: 'Tomato-compact-mode-col' });
-        const modes: { mode: TimerMode; icon: string }[] = [
-            { mode: 'pomodoro', icon: '🍅' },
-            { mode: 'stopwatch', icon: '⏱️' },
-            { mode: 'countdown', icon: '⏳' },
-        ];
+        const modeIcons: Record<TimerMode, string> = {
+            pomodoro: '🍅',
+            stopwatch: '⏱',
+            countdown: '⏳',
+        };
         this.modeBtns = { pomodoro: undefined!, stopwatch: undefined!, countdown: undefined! };
-        for (const { mode, icon } of modes) {
-            const btn = modeCol.createEl('button', {
-                cls: 'Tomato-compact-mode-btn',
-                text: icon,
-            });
-            this.registerDomEvent(btn, 'click', () => {
-                this.plugin.timer.setMode(mode);
-                this.plugin.timer.reset();
-                this.plugin.refreshAllViews?.();
-            });
-            this.modeBtns[mode] = btn;
-        }
+        const modeCycle: TimerMode[] = ['pomodoro', 'stopwatch', 'countdown'];
+        const modeBtn = modeCol.createEl('button', {
+            cls: 'Tomato-compact-mode-btn Tomato-compact-mode-toggle',
+            text: modeIcons['pomodoro'],
+        });
+        this.registerDomEvent(modeBtn, 'click', () => {
+            const current = this.plugin.timer.getMode();
+            const next = modeCycle[(modeCycle.indexOf(current) + 1) % modeCycle.length];
+            this.plugin.timer.setMode(next);
+            this.plugin.refreshAllViews?.();
+        });
+        // Store reference under pomodoro key for updateTimerUI compatibility
+        this.modeBtns.pomodoro = modeBtn;
+        this.modeBtns.stopwatch = modeBtn;
+        this.modeBtns.countdown = modeBtn;
 
         /* ── Info row: status (left) | today minutes (right) ── */
         const infoRow = root.createDiv({ cls: 'Tomato-compact-info-row' });
@@ -147,12 +150,16 @@ export class TomatoTimerCompactView extends ItemView {
         this.statusTextEl.setText(this.phaseLabel(state));
         this.contentEl.setAttribute('data-phase', state.phase);
 
-        // Mode buttons highlight
-        (Object.keys(this.modeBtns) as TimerMode[]).forEach(mode => {
-            this.modeBtns[mode].toggleClass('active', state.mode === mode);
-        });
+        // Mode toggle button update
+        const modeIcons: Record<TimerMode, string> = {
+            pomodoro: '🍅',
+            stopwatch: '⏱',
+            countdown: '⏳',
+        };
+        this.modeBtns.pomodoro.setText(modeIcons[state.mode]);
+        this.modeBtns.pomodoro.toggleClass('active', true);
 
-        // Icon buttons
+        // Icon buttons — cleaner symbols
         if (state.phase === 'idle') {
             this.startPauseBtn.setText('▶');
             this.skipBtn.disabled = true;
@@ -179,6 +186,14 @@ export class TomatoTimerCompactView extends ItemView {
             });
         }
 
+        // Sync inputs
+        if (this.projectSelect.value !== state.currentProject) {
+            this.projectSelect.value = state.currentProject;
+        }
+        if (this.taskInput.value !== state.taskName) {
+            this.taskInput.value = state.taskName;
+        }
+
         // Refresh today minutes (throttled)
         const now = Date.now();
         if (now - this.lastMinutesRefresh > 10000) {
@@ -201,7 +216,7 @@ export class TomatoTimerCompactView extends ItemView {
     }
 
     renderProjectSelect(): void {
-        const current = this.projectSelect?.value ?? '';
+        const current = this.plugin.timer?.getCurrentProject() ?? '';
         this.projectSelect.empty();
         this.projectSelect.createEl('option', { text: this.plugin.t('panel.projectPlaceholder'), value: '' });
         for (const proj of this.plugin.settings.projects) {

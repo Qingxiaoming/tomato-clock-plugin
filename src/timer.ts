@@ -36,6 +36,7 @@ export interface RecoveryData {
     countdownSeconds: number;
     reps: number;
     completedTomatos: number;
+    sessionStartMode: TimerMode;
 }
 
 export type TimerTickCallback = (state: TimerState) => void;
@@ -56,6 +57,7 @@ export class TomatoTimer {
     private currentProject: string = '';
     private sessionStartDate: string = '';
     private sessionStartTime: string = '';
+    private sessionStartMode: TimerMode = 'pomodoro';
 
     private onTickCb: TimerTickCallback | null = null;
     private onPhaseCb: PhaseCompleteCallback | null = null;
@@ -114,6 +116,10 @@ export class TomatoTimer {
         return this.sessionStartTime;
     }
 
+    getSessionStartMode(): TimerMode {
+        return this.sessionStartMode;
+    }
+
     start(): void {
         if (this.isRunning) return;
         if (this.mode === 'pomodoro') {
@@ -127,6 +133,7 @@ export class TomatoTimer {
         const now = new Date();
         this.sessionStartDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         this.sessionStartTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        this.sessionStartMode = this.mode;
         this.startInterval();
         this.notifyTick();
     }
@@ -157,6 +164,7 @@ export class TomatoTimer {
         this.startTime = 0;
         this.sessionStartDate = '';
         this.sessionStartTime = '';
+        this.sessionStartMode = this.mode;
         this.notifyTick();
     }
 
@@ -183,6 +191,7 @@ export class TomatoTimer {
             countdownSeconds: this.countdownSeconds,
             reps: this.reps,
             completedTomatos: this.completedTomatos,
+            sessionStartMode: this.sessionStartMode,
         };
     }
 
@@ -194,6 +203,7 @@ export class TomatoTimer {
         this.currentProject = data.currentProject ?? '';
         this.sessionStartDate = data.sessionStartDate;
         this.sessionStartTime = data.sessionStartTime;
+        this.sessionStartMode = data.sessionStartMode ?? data.mode;
         this.countdownSeconds = data.countdownSeconds;
         this.accumulatedMs = data.accumulatedMs;
 

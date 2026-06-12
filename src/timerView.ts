@@ -172,7 +172,6 @@ export class TomatoTimerView extends ItemView {
             const v = parseInt(this.countdownInput.value, 10);
             this.plugin.timer.setCountdownMinutes(v > 0 ? v : this.plugin.settings.countdownMinutes);
         }
-        this.plugin.timer.reset();
         this.updateTimerUI(this.plugin.timer.getState());
     }
 
@@ -235,10 +234,13 @@ export class TomatoTimerView extends ItemView {
         if (this.projectSelect.value !== state.currentProject) {
             this.projectSelect.value = state.currentProject;
         }
+        if (this.taskInput.value !== state.taskName) {
+            this.taskInput.value = state.taskName;
+        }
     }
 
     renderProjectSelect(): void {
-        const current = this.projectSelect?.value ?? '';
+        const current = this.plugin.timer?.getCurrentProject() ?? '';
         this.projectSelect.empty();
         this.projectSelect.createEl('option', { text: this.plugin.t('panel.projectPlaceholder'), value: '' });
         for (const proj of this.plugin.settings.projects) {
