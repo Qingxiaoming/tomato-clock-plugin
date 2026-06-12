@@ -561,3 +561,400 @@
     min-height: unset !important;
     height: auto !important;
 }
+
+/* =====================================================
+   Project select (compact + full)
+   ===================================================== */
+.Tomato-compact-top-row {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.Tomato-compact-project-select {
+    padding: 3px 4px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.8rem;
+    max-width: 160px;
+    min-width: 60px;
+    flex-shrink: 0;
+    font-family: inherit;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23currentColor%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: right 4px top 50%;
+    background-size: 8px auto;
+    padding-right: 16px;
+}
+
+.Tomato-compact-project-select:focus,
+.Tomato-compact-project-select:focus-visible,
+.Tomato-compact-project-select:active {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: var(--interactive-accent) !important;
+    border-width: 1px !important;
+    border-style: solid !important;
+}
+
+.Tomato-task-row {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    max-width: 200px;
+    align-items: center;
+}
+
+.Tomato-project-select {
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.85rem;
+    min-width: 80px;
+    flex-shrink: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23currentColor%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px top 50%;
+    background-size: 10px auto;
+    padding-right: 20px;
+}
+
+.Tomato-project-select:focus,
+.Tomato-project-select:focus-visible,
+.Tomato-project-select:active {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: var(--interactive-accent) !important;
+    border-width: 1px !important;
+    border-style: solid !important;
+}
+
+/* =====================================================
+   Tabs
+   ===================================================== */
+.Tomato-tabs {
+    display: flex;
+    gap: 4px;
+    width: 100%;
+    max-width: 200px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.Tomato-tab-btn {
+    flex: 1;
+    padding: 6px 4px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.Tomato-tab-btn.active {
+    color: var(--interactive-accent);
+    border-bottom-color: var(--interactive-accent);
+}
+
+.Tomato-tab-content {
+    width: 100%;
+    max-width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* =====================================================
+   Timeline
+   ===================================================== */
+.Tomato-tl-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+}
+
+.Tomato-tl-nav-btn {
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.Tomato-tl-date {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.Tomato-tl-track-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.Tomato-tl-hours {
+    position: relative;
+    height: 14px;
+}
+
+.Tomato-tl-hour-label {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    font-size: 0.6rem;
+    color: var(--text-faint);
+}
+
+.Tomato-tl-track {
+    position: relative;
+    height: 24px;
+    background: var(--background-secondary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.Tomato-tl-bar {
+    position: absolute;
+    top: 2px;
+    height: 20px;
+    border-radius: 3px;
+    opacity: 0.85;
+}
+
+.Tomato-tl-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.Tomato-tl-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.Tomato-tl-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.Tomato-tl-summary {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/* =====================================================
+   Stats
+   ===================================================== */
+.Tomato-stats-periods {
+    display: flex;
+    gap: 4px;
+}
+
+.Tomato-stats-period-btn {
+    flex: 1;
+    padding: 4px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.Tomato-stats-period-btn.active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+.Tomato-stats-export {
+    display: flex;
+    justify-content: center;
+}
+
+.Tomato-stats-cards {
+    display: flex;
+    gap: 8px;
+}
+
+.Tomato-stats-card {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    background: var(--background-secondary);
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--text-normal);
+    white-space: pre-line;
+}
+
+.Tomato-stats-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.Tomato-stats-heading {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.Tomato-stats-dist {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.Tomato-stats-dist-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+}
+
+.Tomato-stats-dist-name {
+    width: 60px;
+    flex-shrink: 0;
+    color: var(--text-normal);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.Tomato-stats-dist-bar-wrap {
+    flex: 1;
+    height: 8px;
+    background: var(--background-secondary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.Tomato-stats-dist-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.Tomato-stats-dist-val {
+    width: 50px;
+    flex-shrink: 0;
+    text-align: right;
+    color: var(--text-muted);
+}
+
+.Tomato-stats-chart {
+    display: flex;
+    gap: 3px;
+    align-items: flex-end;
+    height: 80px;
+}
+
+.Tomato-stats-chart-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    height: 100%;
+}
+
+.Tomato-stats-chart-val {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.Tomato-stats-chart-fill {
+    width: 100%;
+    min-height: 2px;
+    background: var(--interactive-accent);
+    opacity: 0.5;
+    border-radius: 2px 2px 0 0;
+    transition: height 0.3s ease;
+}
+
+.Tomato-stats-chart-fill.today {
+    opacity: 0.9;
+}
+
+.Tomato-stats-chart-label {
+    font-size: 0.55rem;
+    color: var(--text-faint);
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* =====================================================
+   History entry dot
+   ===================================================== */
+.Tomato-entry-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 4px;
+}
+
+/* =====================================================
+   Settings project list
+   ===================================================== */
+.Tomato-project-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.Tomato-project-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.Tomato-project-name {
+    flex: 1;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.85rem;
+}
+
+.Tomato-project-color {
+    width: 32px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+}
+
+.Tomato-project-delete {
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.8rem;
+}

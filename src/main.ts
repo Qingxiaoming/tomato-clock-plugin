@@ -3,14 +3,18 @@ import { TomatoTimer, PhaseType, TimerState, TimerMode } from './timer';
 import { TomatoTimerView, VIEW_TYPE_Tomato } from './timerView';
 import { TomatoTimerCompactView, VIEW_TYPE_Tomato_Compact } from './timerViewCompact';
 import { DEFAULT_SETTINGS, TomatoPluginSettings, TomatoSettingTab } from './settings';
-import { appendEntry, nowTimeString, todayString } from './log';
-import { t, tf, type Lang } from './i18n';
+import { appendEntry, nowTimeString, todayString, parseDayFile } from './log';
+import { t, tf } from './i18n';
+import { NotificationService } from './services/notification';
+import { RecoveryService } from './services/recovery';
 
 export default class TomatoPlugin extends Plugin {
     settings!: TomatoPluginSettings;
     timer!: TomatoTimer;
 
     private statusBarEl!: HTMLElement;
+    private notificationService!: NotificationService;
+    private recoveryService!: RecoveryService;
 
     t(key: string): string { return t(key, this.settings.language); }
     tf(key: string, vars: Record<string, string | number>): string { return tf(key, this.settings.language, vars); }
@@ -30,7 +34,25 @@ export default class TomatoPlugin extends Plugin {
         this.timer.onTick(s => this.onTick(s));
         this.timer.onPhaseComplete((c, n, d) => { void this.onPhaseComplete(c, n, d); });
 
-        // Request OS notification permission on load (Electron / modern browsers)
+        this.notificationService = new NotificationService(this);
+        this.recoveryService = new RecoveryService(this);
+
+        // Restore previous session if any
+        await this.recoveryService.load();
+
+        // Auto-save recovery every 10s
+        this.recoveryService.startAutoSave();
+
+        // Prompt before closing if timer is running
+        this.registerDomEvent(window, 'beforeunload', (e: BeforeUnloadEvent) => {
+            if (this.timer.getState().isRunning) {
+                void this.recoveryService.save();
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+
+        // Request OS notification permission on load
         if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
             void Notification.requestPermission();
         }
@@ -91,11 +113,12 @@ export default class TomatoPlugin extends Plugin {
             },
         });
 
-        // Watch log file changes → refresh history on full panel only
+        // Watch log folder changes → refresh history on full panel only
         this.registerEvent(this.app.vault.on('modify', file => {
-            if (normalizePath(file.path) === normalizePath(this.settings.logFile)) {
+            const folder = normalizePath(this.settings.logFolder);
+            if (normalizePath(file.path).startsWith(folder + '/')) {
                 for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato)) {
-                    if (leaf.view instanceof TomatoTimerView) void leaf.view.refreshHistory();
+                    if (leaf.view instanceof TomatoTimerView) void leaf.view.refreshTabContent();
                 }
             }
         }));
@@ -104,6 +127,8 @@ export default class TomatoPlugin extends Plugin {
     }
 
     onunload(): void {
+        void this.recoveryService.save();
+        this.recoveryService.stopAutoSave();
         this.timer.destroy();
     }
 
@@ -179,32 +204,35 @@ export default class TomatoPlugin extends Plugin {
         else msg = this.t('notice.breakOver');
         new Notice(msg, 4000);
 
-        // Layer 3: OS system notification
-        this.sendOsNotification(
+        this.notificationService.send(
             completed === 'work' ? this.t('notice.title.tomatoDone') : completed === 'stopwatch' ? this.t('notice.title.stopwatchStopped') : completed === 'countdown' ? this.t('notice.title.countdownFinished') : this.t('notice.title.breakOver'),
             completed === 'work' ? this.t('notice.body.rest') : completed === 'stopwatch' ? this.t('notice.body.sessionLogged') : completed === 'countdown' ? this.t('notice.body.timeUp') : this.t('notice.body.backToFocus'),
         );
 
-        // Layer 4: audio beep
-        this.playBeep();
+        this.notificationService.beep();
 
-        // Append entry to log and open file for editing
         if (completed === 'work' || completed === 'stopwatch' || completed === 'countdown') {
-            await appendEntry(this.app, this.settings, {
-                date: todayString(),
-                time: nowTimeString(),
-                duration: durationMinutes,
-                taskName: this.timer.getTaskName(),
-            });
+            try {
+                await appendEntry(this.app, this.settings, {
+                    date: this.timer.getSessionStartDate(),
+                    startTime: this.timer.getSessionStartTime(),
+                    endTime: nowTimeString(),
+                    duration: durationMinutes,
+                    mode: this.timer.getMode(),
+                    taskName: this.buildLogTaskName(),
+                });
+            } catch (e) {
+                new Notice(`${this.t('notice.logWriteFailed')}: ${e instanceof Error ? e.message : String(e)}`, 6000);
+            }
             await this.openLogForEditing();
             for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato)) {
-                if (leaf.view instanceof TomatoTimerView) void leaf.view.refreshHistory();
+                if (leaf.view instanceof TomatoTimerView) void leaf.view.refreshTabContent();
             }
         }
     }
 
     private async openLogForEditing(): Promise<void> {
-        const path = normalizePath(this.settings.logFile);
+        const path = normalizePath(`${this.settings.logFolder}/${todayString()}.md`);
         const file = this.app.vault.getFileByPath(path);
         if (!(file instanceof TFile)) return;
 
@@ -219,6 +247,15 @@ export default class TomatoPlugin extends Plugin {
         }
     }
 
+    private buildLogTaskName(): string {
+        const project = this.timer.getCurrentProject();
+        const task = this.timer.getTaskName();
+        if (project) {
+            return `tomato_project：${project} ${task}`;
+        }
+        return task;
+    }
+
     private refreshStatusBar(state: Pick<TimerState, 'phase' | 'remainingSeconds' | 'elapsedSeconds' | 'isRunning' | 'mode'>): void {
         const emoji = phaseEmoji(state.phase);
         if (state.phase === 'idle') {
@@ -231,30 +268,6 @@ export default class TomatoPlugin extends Plugin {
         this.statusBarEl.setText(`${emoji} ${m}:${s}${state.isRunning ? '' : ' ⏸'}`);
     }
 
-    private sendOsNotification(title: string, body: string): void {
-        if (!this.settings.enableOsNotification) return;
-        if (typeof Notification === 'undefined') return;
-        if (Notification.permission !== 'granted') return;
-        new Notification(title, { body, silent: true });
-    }
-
-    private playBeep(): void {
-        if (!this.settings.enableSound) return;
-        try {
-            const ctx = new AudioContext();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.frequency.value = 800;
-            gain.gain.setValueAtTime(0.3, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.4);
-        } catch {
-            // AudioContext unavailable — silently skip
-        }
-    }
 }
 
 function phaseEmoji(phase: string): string {

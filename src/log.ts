@@ -1,29 +1,34 @@
 import { App, TFile, normalizePath } from 'obsidian';
 import type { TomatoPluginSettings } from './settings';
+import type { TimerMode } from './timer';
 
 export interface TomatoEntry {
-    date: string;     // YYYY-MM-DD
-    time: string;     // HH:MM
-    duration: number; // minutes (snapshot at time of completion)
-    taskName?: string;
+    date: string;     // YYYY-MM-DD (start date)
+    startTime: string; // HH:MM
+    endTime: string;   // HH:MM
+    duration: number;  // minutes
+    mode: TimerMode;
+    taskName: string;
 }
 
 export interface ParsedEntry {
-    time: string;
+    startTime: string;
+    endTime: string;
     duration: number;
-    rest: string; // everything after "HH:MM (Nm) " — user's free text + [[links]]
+    mode: TimerMode;
+    taskName: string;
+    project?: string;
+    rest: string;
+    date?: string;
 }
 
 export interface DayRecord {
     date: string;
-    count: number;
     entries: ParsedEntry[];
 }
 
-// Matches "- HH:MM (Nm) optional rest text"
-const ENTRY_RE = /^- (\d{2}:\d{2}) \((\d+)m\)(.*)/;
-// Matches "## YYYY-MM-DD"
-const DATE_RE = /^## (\d{4}-\d{2}-\d{2})$/;
+// Matches "- 14:30 ~ 14:55 (25m) [pomodoro] rest text"
+const ENTRY_RE = /^- (\d{2}:\d{2}) ~ (\d{2}:\d{2}) \((\d+)m\) \[([^\]]+)\](.*)/;
 
 export function todayString(): string {
     const n = new Date();
@@ -35,102 +40,179 @@ export function nowTimeString(): string {
     return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
 }
 
+export function timeFromDate(d: Date): string {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+export function parseProject(taskName: string): string | undefined {
+    const m = taskName.match(/tomato_project[：:]\s*(\S+)/);
+    return m?.[1];
+}
+
+/** Get daily note path via Obsidian core daily-notes plugin (internal API) */
+export function getDailyNotePath(app: App, dateStr: string): string | null {
+    // @ts-ignore
+    const internalPlugins = app.internalPlugins;
+    let dailyNotes = null;
+    if (internalPlugins?.getPluginById) {
+        dailyNotes = internalPlugins.getPluginById('daily-notes');
+    } else {
+        // Fallback for older Obsidian versions
+        // @ts-ignore
+        dailyNotes = app.internal?.plugins?.getPlugin?.('daily-notes') ?? null;
+    }
+    if (!dailyNotes) return null;
+
+    // New API: plugin.instance.options; Old API: plugin.options
+    const options = dailyNotes.instance?.options ?? dailyNotes.options;
+    if (!options) return null;
+
+    const folder = options.folder ?? '';
+    const format = options.format ?? 'YYYY-MM-DD';
+    // @ts-ignore
+    const moment = window.moment;
+    if (!moment) return null;
+    const m = moment(dateStr, 'YYYY-MM-DD');
+    const fileName = m.format(format);
+    return folder ? `${folder}/${fileName}` : fileName;
+}
+
+function logFilePath(settings: TomatoPluginSettings, dateStr: string): string {
+    const folder = normalizePath(settings.logFolder);
+    return `${folder}/${dateStr}.md`;
+}
+
 export async function appendEntry(
     app: App,
     settings: TomatoPluginSettings,
     entry: TomatoEntry,
 ): Promise<void> {
-    const path = normalizePath(settings.logFile);
-    const taskPart = entry.taskName ? `${entry.taskName} ` : '';
-    const line = `- ${entry.time} (${entry.duration}m) ${taskPart}`;
-    const dateHeader = `## ${entry.date}`;
+    const folder = normalizePath(settings.logFolder);
+    const path = normalizePath(logFilePath(settings, entry.date));
+    const taskPart = entry.taskName ? ` ${entry.taskName}` : '';
+    const line = `- ${entry.startTime} ~ ${entry.endTime} (${entry.duration}m) [${entry.mode}]${taskPart}\n`;
+
+    // Ensure log folder exists
+    const folderExists = await app.vault.adapter.exists(folder);
+    if (!folderExists) {
+        await app.vault.adapter.mkdir(folder);
+    }
 
     const existing = app.vault.getFileByPath(path);
     if (!(existing instanceof TFile)) {
-        await app.vault.create(path, `# Tomato Log\n\n${dateHeader}\n${line}\n`);
+        let header = '';
+        if (settings.enableDailyNoteLink) {
+            const dailyPath = getDailyNotePath(app, entry.date);
+            if (dailyPath) {
+                header = `[[${dailyPath}]]\n\n`;
+            }
+        }
+        await app.vault.create(path, `${header}${line}`);
         return;
     }
 
     await app.vault.process(existing, (content) => {
-        const needle = `\n${dateHeader}\n`;
-        const idx = content.indexOf(needle);
-        if (idx === -1) {
-            // Date section not found — append new section at end
-            const sep = content.endsWith('\n') ? '' : '\n';
-            return `${content}${sep}\n${dateHeader}\n${line}\n`;
-        }
-
-        // Find the next section header to locate the END of this day's section
-        const sectionStart = idx + needle.length;
-        const nextHeaderRe = /\n## /g;
-        nextHeaderRe.lastIndex = sectionStart;
-        const nextMatch = nextHeaderRe.exec(content);
-
-        if (!nextMatch) {
-            // This is the last section — append at end of file
-            const sep = content.endsWith('\n') ? '' : '\n';
-            return `${content}${sep}${line}\n`;
-        }
-
-        // Insert just before the blank line / newline leading into the next section
-        return content.slice(0, nextMatch.index) + '\n' + line + '\n' + content.slice(nextMatch.index);
+        const sep = content.endsWith('\n') ? '' : '\n';
+        return `${content}${sep}${line}`;
     });
 }
 
-export async function parseLogs(
+export async function parseDayFile(
     app: App,
     settings: TomatoPluginSettings,
-): Promise<DayRecord[]> {
-    const path = normalizePath(settings.logFile);
+    dateStr: string,
+): Promise<DayRecord> {
+    const path = normalizePath(logFilePath(settings, dateStr));
     const file = app.vault.getFileByPath(path);
-    if (!(file instanceof TFile)) return [];
+    if (!(file instanceof TFile)) return { date: dateStr, entries: [] };
 
     const content = await app.vault.read(file);
     const lines = content.split('\n');
-    const days: DayRecord[] = [];
-    let currentDate = '';
-    let currentEntries: ParsedEntry[] = [];
+    const entries: ParsedEntry[] = [];
 
     for (const line of lines) {
-        const dateMatch = DATE_RE.exec(line);
-        if (dateMatch) {
-            if (currentDate) {
-                days.push({ date: currentDate, count: currentEntries.length, entries: currentEntries });
-            }
-            currentDate = dateMatch[1] ?? '';
-            currentEntries = [];
-            continue;
-        }
-        if (currentDate) {
-            const entryMatch = ENTRY_RE.exec(line);
-            if (entryMatch) {
-                currentEntries.push({
-                    time: entryMatch[1] ?? '',
-                    duration: parseInt(entryMatch[2] ?? '0', 10),
-                    rest: (entryMatch[3] ?? '').trim(),
-                });
-            }
-        }
+        const match = ENTRY_RE.exec(line);
+        if (!match) continue;
+        const rest = (match[5] ?? '').trim();
+        entries.push({
+            startTime: match[1] ?? '',
+            endTime: match[2] ?? '',
+            duration: parseInt(match[3] ?? '0', 10),
+            mode: (match[4] ?? 'pomodoro') as TimerMode,
+            taskName: rest,
+            project: parseProject(rest),
+            rest,
+        });
     }
-    if (currentDate) {
-        days.push({ date: currentDate, count: currentEntries.length, entries: currentEntries });
-    }
-    return days;
+    return { date: dateStr, entries };
 }
 
-export function totalTomatos(days: DayRecord[]): number {
-    return days.reduce((sum, d) => sum + d.count, 0);
+/** Parse logs for a specific day, including cross-day entries from the previous day. */
+export async function parseDayWithPrev(
+    app: App,
+    settings: TomatoPluginSettings,
+    dateStr: string,
+): Promise<DayRecord> {
+    const today = await parseDayFile(app, settings, dateStr);
+    const prevDate = prevDayString(dateStr);
+    const prev = await parseDayFile(app, settings, prevDate);
+
+    // Add cross-day tail from previous day's entries
+    for (const e of prev.entries) {
+        if (isCrossDay(e.startTime, e.endTime)) {
+            today.entries.push({ ...e, date: prevDate });
+        }
+    }
+    return today;
 }
 
-export function last7Days(days: DayRecord[]): { date: string; count: number }[] {
-    const result: { date: string; count: number }[] = [];
-    const today = new Date();
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(today.getDate() - i);
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const found = days.find(r => r.date === dateStr);
-        result.push({ date: dateStr, count: found?.count ?? 0 });
+/** Total minutes for a specific day, handling cross-day splits correctly. */
+export async function getDayMinutes(
+    app: App,
+    settings: TomatoPluginSettings,
+    dateStr: string,
+): Promise<number> {
+    let total = 0;
+    const today = await parseDayFile(app, settings, dateStr);
+    for (const e of today.entries) {
+        if (isCrossDay(e.startTime, e.endTime)) {
+            // Only count the portion that belongs to today (startTime -> 24:00)
+            total += 1440 - timeToMinutes(e.startTime);
+        } else {
+            total += e.duration;
+        }
     }
-    return result;
+
+    const prevDate = prevDayString(dateStr);
+    const prev = await parseDayFile(app, settings, prevDate);
+    for (const e of prev.entries) {
+        if (isCrossDay(e.startTime, e.endTime)) {
+            // Count the tail portion that belongs to today (00:00 -> endTime)
+            total += timeToMinutes(e.endTime);
+        }
+    }
+    return total;
 }
+
+export function isCrossDay(startTime: string, endTime: string): boolean {
+    return timeToMinutes(endTime) < timeToMinutes(startTime);
+}
+
+export function timeToMinutes(time: string): number {
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
+}
+
+export function prevDayString(dateStr: string): string {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function nextDayString(dateStr: string): string {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+

@@ -1,9 +1,21 @@
-import { ItemView, MarkdownRenderer, WorkspaceLeaf } from 'obsidian';
+import { ItemView, MarkdownRenderer, WorkspaceLeaf, normalizePath, TFile } from 'obsidian';
 import type TomatoPlugin from './main';
 import type { TimerState, PhaseType, TimerMode } from './timer';
-import { parseLogs, totalTomatos, last7Days, todayString } from './log';
+import { parseDayFile, todayString, parseProject, type DayRecord, timeToMinutes } from './log';
+import {
+    dateRangeDays,
+    readEntriesInRange,
+    startOfWeek,
+    startOfMonth,
+    startOfYear,
+    minutesToHM,
+    projectColor,
+    type StatsPeriod,
+} from './utils';
 
 export const VIEW_TYPE_Tomato = 'Tomato-timer-view';
+
+type TabType = 'timeline' | 'stats' | 'history';
 
 export class TomatoTimerView extends ItemView {
     private plugin: TomatoPlugin;
@@ -15,13 +27,21 @@ export class TomatoTimerView extends ItemView {
     private startPauseBtn!: HTMLButtonElement;
     private skipBtn!: HTMLButtonElement;
     private resetBtn!: HTMLButtonElement;
-    private historyEl!: HTMLElement;
     private completedCountEl!: HTMLElement;
 
     private modeBtns: Record<TimerMode, HTMLButtonElement> | null = null;
     private taskInput!: HTMLInputElement;
+    private projectSelect!: HTMLSelectElement;
     private countdownWrap!: HTMLElement;
     private countdownInput!: HTMLInputElement;
+
+    private tabContentEl!: HTMLElement;
+    private currentTab: TabType = 'timeline';
+    private timelineDate: string = todayString();
+    private statsPeriod: StatsPeriod = 'day';
+    private tabBtns!: Record<TabType, HTMLButtonElement>;
+    private refreshing = false;
+    private uiBuilt = false;
 
     constructor(leaf: WorkspaceLeaf, plugin: TomatoPlugin) {
         super(leaf);
@@ -35,19 +55,21 @@ export class TomatoTimerView extends ItemView {
     async onOpen(): Promise<void> {
         this.buildUI();
         this.updateTimerUI(this.plugin.timer.getState());
-        await this.refreshHistory();
+        await this.refreshTabContent();
     }
 
     async onClose(): Promise<void> {
-        // Timer keeps running; main.ts continues handling ticks
+        this.uiBuilt = false;
     }
 
     private buildUI(): void {
+        if (this.uiBuilt) return;
+        this.uiBuilt = true;
         const root = this.contentEl;
         root.empty();
         root.addClass('Tomato-container');
 
-        // Header: icon + title + cumulative count
+        // Header
         const header = root.createDiv({ cls: 'Tomato-header' });
         header.createDiv({ cls: 'Tomato-icon', text: '🍅' });
         const titleRow = header.createDiv({ cls: 'Tomato-title-row' });
@@ -65,9 +87,15 @@ export class TomatoTimerView extends ItemView {
             this.registerDomEvent(this.modeBtns![mode], 'click', () => this.setMode(mode));
         });
 
-        // Task input
-        const taskWrap = root.createDiv({ cls: 'Tomato-task-wrap' });
-        this.taskInput = taskWrap.createEl('input', {
+        // Project + Task row
+        const taskRow = root.createDiv({ cls: 'Tomato-task-row' });
+        this.projectSelect = taskRow.createEl('select', { cls: 'Tomato-project-select' });
+        this.registerDomEvent(this.projectSelect, 'change', () => {
+            this.plugin.timer.setCurrentProject(this.projectSelect.value);
+        });
+        this.renderProjectSelect();
+
+        this.taskInput = taskRow.createEl('input', {
             cls: 'Tomato-task-input',
             attr: { placeholder: this.plugin.t('panel.taskPlaceholder') },
         });
@@ -87,7 +115,7 @@ export class TomatoTimerView extends ItemView {
             if (v > 0) this.plugin.timer.setCountdownMinutes(v);
         });
 
-        // Progress dots (one per cycle slot)
+        // Progress dots
         this.dotsEl = root.createDiv({ cls: 'Tomato-dots' });
         this.phaseDotEls = [];
         for (let i = 0; i < this.plugin.settings.cycles; i++) {
@@ -101,7 +129,6 @@ export class TomatoTimerView extends ItemView {
 
         // Controls
         const controls = root.createDiv({ cls: 'Tomato-controls' });
-
         this.startPauseBtn = controls.createEl('button', {
             cls: 'Tomato-btn Tomato-btn-primary',
             text: this.plugin.t('panel.btn.start'),
@@ -121,8 +148,22 @@ export class TomatoTimerView extends ItemView {
         });
         this.registerDomEvent(this.resetBtn, 'click', () => this.plugin.timer.reset());
 
-        // History section
-        this.historyEl = root.createDiv({ cls: 'Tomato-history' });
+        // Tabs
+        const tabs = root.createDiv({ cls: 'Tomato-tabs' });
+        this.tabBtns = {
+            timeline: tabs.createEl('button', { cls: 'Tomato-tab-btn active', text: this.plugin.t('panel.tab.timeline') }),
+            stats: tabs.createEl('button', { cls: 'Tomato-tab-btn', text: this.plugin.t('panel.tab.stats') }),
+            history: tabs.createEl('button', { cls: 'Tomato-tab-btn', text: this.plugin.t('panel.tab.history') }),
+        };
+        (Object.keys(this.tabBtns) as TabType[]).forEach(tab => {
+            this.registerDomEvent(this.tabBtns[tab], 'click', () => {
+                this.currentTab = tab;
+                (Object.keys(this.tabBtns) as TabType[]).forEach(t => this.tabBtns[t].toggleClass('active', t === tab));
+                void this.refreshTabContent();
+            });
+        });
+
+        this.tabContentEl = root.createDiv({ cls: 'Tomato-tab-content' });
     }
 
     private setMode(mode: TimerMode): void {
@@ -143,16 +184,13 @@ export class TomatoTimerView extends ItemView {
     }
 
     updateTimerUI(state: TimerState): void {
-        // Mode buttons
         if (this.modeBtns) {
             (Object.keys(this.modeBtns) as TimerMode[]).forEach(mode => {
                 this.modeBtns![mode].toggleClass('active', state.mode === mode);
             });
         }
 
-        // Show/hide countdown input
         this.countdownWrap.style.display = state.mode === 'countdown' ? 'flex' : 'none';
-        // Show/hide dots
         this.dotsEl.style.display = state.mode === 'pomodoro' ? 'flex' : 'none';
 
         const displaySeconds = state.mode === 'stopwatch' ? state.elapsedSeconds : state.remainingSeconds;
@@ -180,7 +218,6 @@ export class TomatoTimerView extends ItemView {
 
         this.resetBtn.disabled = state.isRunning;
 
-        // Dot states: completed = filled, active = current work slot
         if (state.mode === 'pomodoro') {
             const doneInCycle = state.completedTomatos % this.plugin.settings.cycles;
             this.phaseDotEls.forEach((dot, i) => {
@@ -194,61 +231,275 @@ export class TomatoTimerView extends ItemView {
         }
 
         this.completedCountEl.setText(state.completedTomatos > 0 ? ` ×${state.completedTomatos}` : '');
+
+        if (this.projectSelect.value !== state.currentProject) {
+            this.projectSelect.value = state.currentProject;
+        }
     }
 
-    async refreshHistory(): Promise<void> {
-        const days = await parseLogs(this.app, this.plugin.settings);
-        const total = totalTomatos(days);
-        const week = last7Days(days);
+    renderProjectSelect(): void {
+        const current = this.projectSelect?.value ?? '';
+        this.projectSelect.empty();
+        this.projectSelect.createEl('option', { text: this.plugin.t('panel.projectPlaceholder'), value: '' });
+        for (const proj of this.plugin.settings.projects) {
+            this.projectSelect.createEl('option', { text: proj.name, value: proj.name });
+        }
+        this.projectSelect.value = current;
+    }
+
+    async refreshTabContent(): Promise<void> {
+        if (this.refreshing) return;
+        this.refreshing = true;
+        try {
+            this.tabContentEl.empty();
+            if (this.currentTab === 'timeline') {
+                await this.renderTimeline();
+            } else if (this.currentTab === 'stats') {
+                await this.renderStats();
+            } else {
+                await this.renderHistory();
+            }
+        } finally {
+            this.refreshing = false;
+        }
+    }
+
+    // ===== Timeline =====
+    async renderTimeline(): Promise<void> {
+        const el = this.tabContentEl;
+
+        // Date navigator
+        const nav = el.createDiv({ cls: 'Tomato-tl-nav' });
+        nav.createEl('button', { text: '◀', cls: 'Tomato-tl-nav-btn' }, btn => {
+            btn.addEventListener('click', () => {
+                const d = new Date(this.timelineDate + 'T00:00:00');
+                d.setDate(d.getDate() - 1);
+                this.timelineDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                void this.refreshTabContent();
+            });
+        });
+        nav.createSpan({ cls: 'Tomato-tl-date', text: this.timelineDate });
+        nav.createEl('button', { text: '▶', cls: 'Tomato-tl-nav-btn' }, btn => {
+            btn.addEventListener('click', () => {
+                const d = new Date(this.timelineDate + 'T00:00:00');
+                d.setDate(d.getDate() + 1);
+                this.timelineDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                void this.refreshTabContent();
+            });
+        });
+        nav.createEl('button', { text: this.plugin.t('panel.timeline.today'), cls: 'Tomato-tl-nav-btn' }, btn => {
+            btn.addEventListener('click', () => {
+                this.timelineDate = todayString();
+                void this.refreshTabContent();
+            });
+        });
+
+        const day = await parseDayFile(this.app, this.plugin.settings, this.timelineDate);
+
+        // Track
+        const trackWrap = el.createDiv({ cls: 'Tomato-tl-track-wrap' });
+        // Hour labels (every 4h)
+        const hourLabels = trackWrap.createDiv({ cls: 'Tomato-tl-hours' });
+        for (let h = 0; h <= 24; h += 4) {
+            const left = (h / 24) * 100;
+            const label = hourLabels.createDiv({ cls: 'Tomato-tl-hour-label' });
+            label.style.left = `${left}%`;
+            label.setText(`${String(h).padStart(2, '0')}:00`);
+        }
+
+        const track = trackWrap.createDiv({ cls: 'Tomato-tl-track' });
+        for (const entry of day.entries) {
+            const startMin = timeToMinutes(entry.startTime);
+            const left = (startMin / 1440) * 100;
+            const width = (entry.duration / 1440) * 100;
+            const bar = track.createDiv({ cls: 'Tomato-tl-bar' });
+            bar.style.left = `${left}%`;
+            bar.style.width = `${Math.max(width, 0.3)}%`;
+            bar.style.backgroundColor = projectColor(this.plugin, entry.project);
+            bar.setAttribute('title', `${entry.startTime} ~ ${entry.endTime} (${entry.duration}m) ${entry.project ?? ''} ${entry.rest}`);
+        }
+
+        // Legend
+        if (this.plugin.settings.projects.length > 0) {
+            const legend = el.createDiv({ cls: 'Tomato-tl-legend' });
+            for (const proj of this.plugin.settings.projects) {
+                const item = legend.createDiv({ cls: 'Tomato-tl-legend-item' });
+                item.createDiv({ cls: 'Tomato-tl-legend-dot' }).style.backgroundColor = proj.color;
+                item.createSpan({ text: proj.name });
+            }
+        }
+
+        // Summary
+        const totalMin = day.entries.reduce((s, e) => s + e.duration, 0);
+        const pomos = day.entries.filter(e => e.mode === 'pomodoro').length;
+        el.createDiv({
+            cls: 'Tomato-tl-summary',
+            text: this.plugin.tf('panel.timeline.total', { duration: minutesToHM(totalMin), n: String(pomos) }),
+        });
+    }
+
+    // ===== Stats =====
+    async renderStats(): Promise<void> {
+        const el = this.tabContentEl;
+
+        // Period switcher
+        const periodBar = el.createDiv({ cls: 'Tomato-stats-periods' });
+        const periods: { key: StatsPeriod; labelKey: string }[] = [
+            { key: 'day', labelKey: 'panel.stats.period.day' },
+            { key: 'week', labelKey: 'panel.stats.period.week' },
+            { key: 'month', labelKey: 'panel.stats.period.month' },
+            { key: 'year', labelKey: 'panel.stats.period.year' },
+        ];
+        for (const p of periods) {
+            periodBar.createEl('button', {
+                cls: 'Tomato-stats-period-btn' + (this.statsPeriod === p.key ? ' active' : ''),
+                text: this.plugin.t(p.labelKey),
+            }, btn => {
+                btn.addEventListener('click', () => {
+                    this.statsPeriod = p.key;
+                    void this.refreshTabContent();
+                });
+            });
+        }
+
+        // Export button for week/month/year
+        if (this.statsPeriod !== 'day') {
+            const exportBar = el.createDiv({ cls: 'Tomato-stats-export' });
+            const periodLabel = this.plugin.t(`panel.stats.period.${this.statsPeriod}` as `panel.stats.period.${StatsPeriod}`);
+            exportBar.createEl('button', {
+                cls: 'Tomato-btn Tomato-btn-secondary',
+                text: this.plugin.tf('panel.stats.export', { period: periodLabel }),
+            }, btn => {
+                btn.addEventListener('click', () => void this.generateReport(this.statsPeriod));
+            });
+        }
+
+        const today = todayString();
+        let start = today;
+        let end = today;
+        let dayLabels: string[] = [];
+
+        if (this.statsPeriod === 'day') {
+            start = today; end = today; dayLabels = [today];
+        } else if (this.statsPeriod === 'week') {
+            start = startOfWeek(today);
+            end = today;
+            dayLabels = dateRangeDays(end, Math.min(7, Math.ceil((new Date(end + 'T00:00:00').getTime() - new Date(start + 'T00:00:00').getTime()) / 86400000) + 1));
+        } else if (this.statsPeriod === 'month') {
+            start = startOfMonth(today);
+            end = today;
+            dayLabels = dateRangeDays(end, Math.min(31, Math.ceil((new Date(end + 'T00:00:00').getTime() - new Date(start + 'T00:00:00').getTime()) / 86400000) + 1));
+        } else if (this.statsPeriod === 'year') {
+            start = startOfYear(today);
+            end = today;
+            // For year view, show monthly bars instead of daily
+            dayLabels = [];
+        }
+
+        const entries = await readEntriesInRange(this.app, this.plugin.settings, start, end);
+        const totalMin = entries.reduce((s, e) => s + e.duration, 0);
+        const pomoCount = entries.filter(e => e.mode === 'pomodoro').length;
+
+        // Summary cards
+        const cards = el.createDiv({ cls: 'Tomato-stats-cards' });
+        cards.createDiv({ cls: 'Tomato-stats-card', text: this.plugin.tf('panel.stats.totalDuration', { duration: minutesToHM(totalMin) }) });
+        cards.createDiv({ cls: 'Tomato-stats-card', text: this.plugin.tf('panel.stats.tomatos', { n: String(pomoCount) }) });
+
+        // Project distribution
+        const projMap = new Map<string, number>();
+        for (const e of entries) {
+            const key = e.project ?? this.plugin.t('panel.stats.noProject');
+            projMap.set(key, (projMap.get(key) ?? 0) + e.duration);
+        }
+        if (projMap.size > 0) {
+            const projEl = el.createDiv({ cls: 'Tomato-stats-section' });
+            projEl.createDiv({ cls: 'Tomato-stats-heading', text: this.plugin.t('panel.stats.projectDist') });
+            const distBar = projEl.createDiv({ cls: 'Tomato-stats-dist' });
+            const noProjectLabel = this.plugin.t('panel.stats.noProject');
+            for (const [name, min] of projMap) {
+                const pct = totalMin > 0 ? (min / totalMin) * 100 : 0;
+                const row = distBar.createDiv({ cls: 'Tomato-stats-dist-row' });
+                row.createSpan({ cls: 'Tomato-stats-dist-name', text: name });
+                const barWrap = row.createDiv({ cls: 'Tomato-stats-dist-bar-wrap' });
+                const bar = barWrap.createDiv({ cls: 'Tomato-stats-dist-bar' });
+                bar.style.width = `${pct}%`;
+                bar.style.backgroundColor = projectColor(this.plugin, name === noProjectLabel ? undefined : name);
+                row.createSpan({ cls: 'Tomato-stats-dist-val', text: minutesToHM(min) });
+            }
+        }
+
+        // Daily / monthly trend bars
+        if (this.statsPeriod !== 'year') {
+            const trendEl = el.createDiv({ cls: 'Tomato-stats-section' });
+            trendEl.createDiv({ cls: 'Tomato-stats-heading', text: this.plugin.t('panel.stats.trend') });
+            const chart = trendEl.createDiv({ cls: 'Tomato-stats-chart' });
+            const dayMap = new Map<string, number>();
+            for (const e of entries) {
+                dayMap.set(e.date, (dayMap.get(e.date) ?? 0) + e.duration);
+            }
+            const maxMin = Math.max(...dayMap.values(), 1);
+            for (const d of dayLabels) {
+                const min = dayMap.get(d) ?? 0;
+                const col = chart.createDiv({ cls: 'Tomato-stats-chart-col' });
+                if (min > 0) {
+                    col.createDiv({ cls: 'Tomato-stats-chart-val', text: String(min) });
+                }
+                const fill = col.createDiv({ cls: 'Tomato-stats-chart-fill' + (d === today ? ' today' : '') });
+                fill.style.height = `${(min / maxMin) * 100}%`;
+                col.createDiv({ cls: 'Tomato-stats-chart-label', text: d.slice(5).replace('-', '/') });
+            }
+        } else {
+            // Year view: monthly bars
+            const trendEl = el.createDiv({ cls: 'Tomato-stats-section' });
+            trendEl.createDiv({ cls: 'Tomato-stats-heading', text: this.plugin.t('panel.stats.monthlyTrend') });
+            const chart = trendEl.createDiv({ cls: 'Tomato-stats-chart' });
+            const monthMap = new Map<number, number>();
+            for (const e of entries) {
+                const m = parseInt(e.date.slice(5, 7), 10);
+                monthMap.set(m, (monthMap.get(m) ?? 0) + e.duration);
+            }
+            const maxMin = Math.max(...monthMap.values(), 1);
+            for (let m = 1; m <= 12; m++) {
+                const min = monthMap.get(m) ?? 0;
+                const col = chart.createDiv({ cls: 'Tomato-stats-chart-col' });
+                if (min > 0) {
+                    col.createDiv({ cls: 'Tomato-stats-chart-val', text: String(min) });
+                }
+                const fill = col.createDiv({ cls: 'Tomato-stats-chart-fill' + (m === new Date().getMonth() + 1 ? ' today' : '') });
+                fill.style.height = `${(min / maxMin) * 100}%`;
+                col.createDiv({ cls: 'Tomato-stats-chart-label', text: `${m}月` });
+            }
+        }
+    }
+
+    // ===== History List =====
+    async renderHistory(): Promise<void> {
+        const el = this.tabContentEl;
         const todayStr = todayString();
-        const todayRecord = days.find(d => d.date === todayStr);
+        const day = await parseDayFile(this.app, this.plugin.settings, todayStr);
 
-        const el = this.historyEl;
-        el.empty();
-
-        // --- Today ---
         const todaySection = el.createDiv({ cls: 'Tomato-history-section' });
         const todayHeader = todaySection.createDiv({ cls: 'Tomato-history-heading' });
-        const todayCount = todayRecord?.count ?? 0;
-        const todayMinutes = todayRecord?.entries.reduce((s, e) => s + e.duration, 0) ?? 0;
+        const todayCount = day.entries.filter(e => e.mode === 'pomodoro').length;
+        const todayMinutes = day.entries.reduce((s, e) => s + e.duration, 0);
         todayHeader.createSpan({ text: this.plugin.t('panel.history.today') });
         const summary = todayCount > 0
-            ? `${todayCount} 🍅 · ${Math.floor(todayMinutes / 60)}h ${todayMinutes % 60}m`
+            ? `${todayCount} 🍅 · ${minutesToHM(todayMinutes)}`
             : this.plugin.t('panel.history.noTomatos');
         todayHeader.createSpan({ cls: 'Tomato-today-summary', text: summary });
 
-        if (todayRecord && todayRecord.entries.length > 0) {
+        if (day.entries.length > 0) {
             const list = todaySection.createDiv({ cls: 'Tomato-today-list' });
-            for (const entry of todayRecord.entries) {
+            for (const entry of day.entries) {
                 const item = list.createDiv({ cls: 'Tomato-today-item' });
-                item.createSpan({ cls: 'Tomato-entry-time', text: entry.time });
+                const dot = item.createDiv({ cls: 'Tomato-entry-dot' });
+                dot.style.backgroundColor = projectColor(this.plugin, entry.project);
+                item.createSpan({ cls: 'Tomato-entry-time', text: `${entry.startTime} ~ ${entry.endTime}` });
                 if (entry.rest) {
                     const noteEl = item.createSpan({ cls: 'Tomato-entry-note' });
-                    // Render markdown so [[wikilinks]] become clickable
                     await MarkdownRenderer.render(this.app, entry.rest, noteEl, '', this);
                 }
             }
-        }
-
-        // --- This week ---
-        const weekSection = el.createDiv({ cls: 'Tomato-history-section' });
-        const weekHeader = weekSection.createDiv({ cls: 'Tomato-history-heading' });
-        weekHeader.createSpan({ text: this.plugin.t('panel.history.thisWeek') });
-        if (total > 0) {
-            weekHeader.createSpan({ cls: 'Tomato-total', text: this.plugin.tf('panel.history.total', { n: total }) });
-        }
-
-        const maxCount = Math.max(...week.map(d => d.count), 1);
-        const barEl = weekSection.createDiv({ cls: 'Tomato-week-bar' });
-
-        for (const day of week) {
-            const col = barEl.createDiv({ cls: 'Tomato-bar-col' });
-            if (day.count > 0) {
-                col.createDiv({ cls: 'Tomato-bar-count', text: String(day.count) });
-            }
-            const fill = col.createDiv({ cls: 'Tomato-bar-fill' + (day.date === todayStr ? ' today' : '') });
-            fill.style.height = `${Math.round((day.count / maxCount) * 100)}%`;
-            col.createDiv({ cls: 'Tomato-bar-label', text: day.date.slice(5).replace('-', '/') });
         }
     }
 
@@ -269,5 +520,91 @@ export class TomatoTimerView extends ItemView {
             countdown: this.plugin.t('panel.status.countdown'),
         };
         return labels[state.phase];
+    }
+
+    private async generateReport(period: StatsPeriod): Promise<void> {
+        const today = todayString();
+        let start = today;
+        let end = today;
+        let title = '';
+
+        if (period === 'week') {
+            start = startOfWeek(today);
+            end = today;
+            title = this.plugin.tf('panel.report.weekTitle', { start, end });
+        } else if (period === 'month') {
+            start = startOfMonth(today);
+            end = today;
+            title = this.plugin.tf('panel.report.monthTitle', { month: today.slice(0, 7) });
+        } else if (period === 'year') {
+            start = startOfYear(today);
+            end = today;
+            title = this.plugin.tf('panel.report.yearTitle', { year: today.slice(0, 4) });
+        } else {
+            return;
+        }
+
+        const entries = await readEntriesInRange(this.app, this.plugin.settings, start, end);
+        const totalMin = entries.reduce((s, e) => s + e.duration, 0);
+        const pomoCount = entries.filter(e => e.mode === 'pomodoro').length;
+
+        const projMap = new Map<string, number>();
+        for (const e of entries) {
+            const key = e.project ?? this.plugin.t('panel.stats.noProject');
+            projMap.set(key, (projMap.get(key) ?? 0) + e.duration);
+        }
+
+        let md = `# ${title}\n\n`;
+        md += `**${this.plugin.t('panel.report.totalDuration')}**: ${minutesToHM(totalMin)}  \n`;
+        md += `**${this.plugin.t('panel.report.tomatoCount')}**: ${pomoCount}  \n\n`;
+
+        md += `## ${this.plugin.t('panel.report.projectDist')}\n\n`;
+        for (const [name, min] of projMap) {
+            const pct = totalMin > 0 ? ((min / totalMin) * 100).toFixed(1) : '0';
+            md += `- ${name}: ${minutesToHM(min)} (${pct}%)\n`;
+        }
+        md += `\n`;
+
+        if (period === 'year') {
+            md += `## ${this.plugin.t('panel.report.monthlyDetails')}\n\n`;
+            const monthMap = new Map<number, number>();
+            for (const e of entries) {
+                const m = parseInt(e.date.slice(5, 7), 10);
+                monthMap.set(m, (monthMap.get(m) ?? 0) + e.duration);
+            }
+            for (let m = 1; m <= 12; m++) {
+                const min = monthMap.get(m) ?? 0;
+                if (min > 0) {
+                    md += `- ${this.plugin.tf('panel.report.monthSuffix', { n: String(m) })}: ${minutesToHM(min)}\n`;
+                }
+            }
+        } else {
+            md += `## ${this.plugin.t('panel.report.dailyDetails')}\n\n`;
+            const dayMap = new Map<string, number>();
+            for (const e of entries) {
+                dayMap.set(e.date, (dayMap.get(e.date) ?? 0) + e.duration);
+            }
+            const sortedDays = Array.from(dayMap.keys()).sort();
+            for (const d of sortedDays) {
+                const min = dayMap.get(d) ?? 0;
+                md += `- ${d}: ${minutesToHM(min)}\n`;
+            }
+        }
+
+        const folder = normalizePath(`${this.plugin.settings.logFolder}/Reports`);
+        const fileName = `${title}.md`;
+        const filePath = `${folder}/${fileName}`;
+
+        await this.app.vault.adapter.mkdir(folder);
+        const existing = this.app.vault.getFileByPath(filePath);
+        if (existing instanceof TFile) {
+            await this.app.vault.modify(existing, md);
+        } else {
+            await this.app.vault.create(filePath, md);
+        }
+        const file = this.app.vault.getFileByPath(filePath);
+        if (file) {
+            await this.app.workspace.getLeaf().openFile(file);
+        }
     }
 }

@@ -19,6 +19,23 @@ export interface TimerState {
     isRunning: boolean;
     completedTomatos: number;
     taskName: string;
+    currentProject: string;
+}
+
+export interface RecoveryData {
+    mode: TimerMode;
+    phase: PhaseType;
+    isRunning: boolean;
+    startTime: number;
+    accumulatedMs: number;
+    taskName: string;
+    currentProject: string;
+    lastUpdated: number;
+    sessionStartDate: string;
+    sessionStartTime: string;
+    countdownSeconds: number;
+    reps: number;
+    completedTomatos: number;
 }
 
 export type TimerTickCallback = (state: TimerState) => void;
@@ -36,6 +53,9 @@ export class TomatoTimer {
     private mode: TimerMode = 'pomodoro';
     private countdownSeconds: number = 0;
     private taskName: string = '';
+    private currentProject: string = '';
+    private sessionStartDate: string = '';
+    private sessionStartTime: string = '';
 
     private onTickCb: TimerTickCallback | null = null;
     private onPhaseCb: PhaseCompleteCallback | null = null;
@@ -78,6 +98,22 @@ export class TomatoTimer {
         return this.taskName;
     }
 
+    setCurrentProject(project: string): void {
+        this.currentProject = project;
+    }
+
+    getCurrentProject(): string {
+        return this.currentProject;
+    }
+
+    getSessionStartDate(): string {
+        return this.sessionStartDate;
+    }
+
+    getSessionStartTime(): string {
+        return this.sessionStartTime;
+    }
+
     start(): void {
         if (this.isRunning) return;
         if (this.mode === 'pomodoro') {
@@ -88,6 +124,9 @@ export class TomatoTimer {
         this.isRunning = true;
         this.accumulatedMs = 0;
         this.startTime = Date.now();
+        const now = new Date();
+        this.sessionStartDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        this.sessionStartTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
         this.startInterval();
         this.notifyTick();
     }
@@ -116,6 +155,8 @@ export class TomatoTimer {
         this.isRunning = false;
         this.accumulatedMs = 0;
         this.startTime = 0;
+        this.sessionStartDate = '';
+        this.sessionStartTime = '';
         this.notifyTick();
     }
 
@@ -123,6 +164,66 @@ export class TomatoTimer {
         this.stopInterval();
         this.onTickCb = null;
         this.onPhaseCb = null;
+    }
+
+    getRecoveryData(): RecoveryData {
+        return {
+            mode: this.mode,
+            phase: this.currentPhase(),
+            isRunning: this.isRunning,
+            startTime: this.startTime,
+            accumulatedMs: this.isRunning
+                ? this.accumulatedMs + (Date.now() - this.startTime)
+                : this.accumulatedMs,
+            taskName: this.taskName,
+            currentProject: this.currentProject,
+            lastUpdated: Date.now(),
+            sessionStartDate: this.sessionStartDate,
+            sessionStartTime: this.sessionStartTime,
+            countdownSeconds: this.countdownSeconds,
+            reps: this.reps,
+            completedTomatos: this.completedTomatos,
+        };
+    }
+
+    restoreFromRecovery(data: RecoveryData): void {
+        this.mode = data.mode;
+        this.reps = data.reps;
+        this.completedTomatos = data.completedTomatos;
+        this.taskName = data.taskName;
+        this.currentProject = data.currentProject ?? '';
+        this.sessionStartDate = data.sessionStartDate;
+        this.sessionStartTime = data.sessionStartTime;
+        this.countdownSeconds = data.countdownSeconds;
+        this.accumulatedMs = data.accumulatedMs;
+
+        if (data.isRunning) {
+            const now = Date.now();
+            const delta = now - data.lastUpdated;
+            this.accumulatedMs += delta;
+            this.startTime = now;
+
+            // Check if already timed out (skip stopwatch which never times out)
+            if (this.mode !== 'stopwatch') {
+                const total = this.phaseDuration(this.currentPhase()) * 1000;
+                if (this.accumulatedMs >= total) {
+                    // Auto-end: treat as natural completion
+                    this.isRunning = false;
+                    const done = this.currentPhase();
+                    if (done === 'work') this.completedTomatos += 1;
+                    const durationMin = Math.round(this.phaseDuration(done) / 60);
+                    this.handleEnd(done, durationMin);
+                    return;
+                }
+            }
+
+            this.isRunning = true;
+            this.startInterval();
+        } else {
+            this.isRunning = false;
+            this.startTime = 0;
+        }
+        this.notifyTick();
     }
 
     skip(): void {
@@ -147,6 +248,7 @@ export class TomatoTimer {
             isRunning: this.isRunning,
             completedTomatos: this.completedTomatos,
             taskName: this.taskName,
+            currentProject: this.currentProject,
         };
     }
 

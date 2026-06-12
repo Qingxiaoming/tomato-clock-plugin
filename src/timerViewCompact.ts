@@ -1,7 +1,7 @@
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 import type TomatoPlugin from './main';
 import type { TimerState, PhaseType, TimerMode } from './timer';
-import { parseLogs, todayString } from './log';
+import { getDayMinutes, todayString } from './log';
 
 export const VIEW_TYPE_Tomato_Compact = 'Tomato-timer-compact-view';
 
@@ -17,8 +17,10 @@ export class TomatoTimerCompactView extends ItemView {
     private skipBtn!: HTMLButtonElement;
     private resetBtn!: HTMLButtonElement;
     private taskInput!: HTMLInputElement;
+    private projectSelect!: HTMLSelectElement;
     private modeBtns!: Record<TimerMode, HTMLButtonElement>;
     private lastMinutesRefresh = 0;
+    private uiBuilt = false;
 
     constructor(leaf: WorkspaceLeaf, plugin: TomatoPlugin) {
         super(leaf);
@@ -39,17 +41,27 @@ export class TomatoTimerCompactView extends ItemView {
     }
 
     async onClose(): Promise<void> {
+        this.uiBuilt = false;
         const leafEl = this.containerEl.closest('.workspace-leaf');
         if (leafEl) leafEl.removeClass('Tomato-compact-leaf');
     }
 
     private buildUI(): void {
+        if (this.uiBuilt) return;
+        this.uiBuilt = true;
         const root = this.contentEl;
         root.empty();
         root.addClass('Tomato-compact-container');
 
-        /* ── Top: task input only ── */
-        this.taskInput = root.createEl('input', {
+        /* ── Top: project select + task input ── */
+        const topRow = root.createDiv({ cls: 'Tomato-compact-top-row' });
+        this.projectSelect = topRow.createEl('select', { cls: 'Tomato-compact-project-select' });
+        this.registerDomEvent(this.projectSelect, 'change', () => {
+            this.plugin.timer.setCurrentProject(this.projectSelect.value);
+        });
+        this.renderProjectSelect();
+
+        this.taskInput = topRow.createEl('input', {
             cls: 'Tomato-compact-task-input',
             attr: { placeholder: this.plugin.t('panel.taskPlaceholder') },
         });
@@ -177,10 +189,7 @@ export class TomatoTimerCompactView extends ItemView {
 
     private async refreshTodayMinutes(): Promise<void> {
         try {
-            const days = await parseLogs(this.app, this.plugin.settings);
-            const todayStr = todayString();
-            const todayRecord = days.find(d => d.date === todayStr);
-            const minutes = todayRecord?.entries.reduce((s, e) => s + e.duration, 0) ?? 0;
+            const minutes = await getDayMinutes(this.app, this.plugin.settings, todayString());
             if (minutes > 0) {
                 this.todayMinutesEl.setText(`${this.plugin.t('panel.todayTotal')} ${minutes}min`);
             } else {
@@ -189,6 +198,16 @@ export class TomatoTimerCompactView extends ItemView {
         } catch {
             this.todayMinutesEl.setText('');
         }
+    }
+
+    renderProjectSelect(): void {
+        const current = this.projectSelect?.value ?? '';
+        this.projectSelect.empty();
+        this.projectSelect.createEl('option', { text: this.plugin.t('panel.projectPlaceholder'), value: '' });
+        for (const proj of this.plugin.settings.projects) {
+            this.projectSelect.createEl('option', { text: proj.name, value: proj.name });
+        }
+        this.projectSelect.value = current;
     }
 
     private fmtTime(s: number): string {
