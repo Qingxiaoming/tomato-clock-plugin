@@ -127,14 +127,39 @@
     transition: opacity 0.15s, transform 0.1s;
 }
 
-.Tomato-btn:hover  { opacity: 0.82; }
-.Tomato-btn:active { transform: scale(0.96); }
-.Tomato-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.Tomato-btn:hover {
+    opacity: 0.82;
+}
 
-.Tomato-btn-primary   { background: var(--interactive-accent); color: var(--text-on-accent); }
-.Tomato-btn-secondary { background: var(--background-modifier-border); color: var(--text-normal); }
-.Tomato-btn-danger    { background: var(--background-modifier-border); color: var(--text-muted); }
-.Tomato-btn-danger:hover { background: var(--color-red); color: #fff; opacity: 1; }
+.Tomato-btn:active {
+    transform: scale(0.96);
+}
+
+.Tomato-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.Tomato-btn-primary {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.Tomato-btn-secondary {
+    background: var(--background-modifier-border);
+    color: var(--text-normal);
+}
+
+.Tomato-btn-danger {
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+}
+
+.Tomato-btn-danger:hover {
+    background: var(--color-red);
+    color: #fff;
+    opacity: 1;
+}
 
 /* =====================================================
    Status bar
@@ -260,4 +285,279 @@
     color: var(--text-muted);
     text-align: center;
     line-height: 1;
+}
+
+/* =====================================================
+   Mode switcher
+   ===================================================== */
+.Tomato-mode-switcher {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    max-width: 200px;
+}
+
+.Tomato-mode-btn {
+    flex: 1;
+    padding: 6px 4px;
+    border-radius: 6px;
+    border: 1px solid var(--background-modifier-border);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.Tomato-mode-btn:hover {
+    background: var(--background-modifier-hover);
+}
+
+.Tomato-mode-btn.active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+/* =====================================================
+   Task input
+   ===================================================== */
+.Tomato-task-wrap {
+    width: 100%;
+    max-width: 200px;
+}
+
+.Tomato-task-input {
+    width: 100%;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.85rem;
+    box-sizing: border-box;
+}
+
+.Tomato-task-input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+/* =====================================================
+   Countdown input
+   ===================================================== */
+.Tomato-countdown-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 200px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.Tomato-countdown-input {
+    width: 60px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.85rem;
+    text-align: center;
+}
+
+.Tomato-countdown-input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+/* =====================================================
+   Compact panel
+   ===================================================== */
+.Tomato-compact-container {
+    display: flex;
+    flex-direction: column;
+    padding: 6px 8px;
+    gap: 4px;
+    box-sizing: border-box;
+    user-select: none;
+}
+
+.Tomato-compact-task-input {
+    width: 100%;
+    padding: 3px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.8rem;
+    box-sizing: border-box;
+}
+
+.Tomato-compact-task-input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+/* Bottom row: dots | clock | buttons | modes */
+.Tomato-compact-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.Tomato-compact-dot-col {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    justify-content: center;
+}
+
+.Tomato-compact-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--background-modifier-border);
+    transition: background 0.2s;
+}
+
+.Tomato-compact-dot.completed {
+    background: var(--color-red);
+}
+
+.Tomato-compact-dot.active {
+    background: var(--color-orange);
+    box-shadow: 0 0 3px var(--color-orange);
+}
+
+.Tomato-compact-time-col {
+    flex: 1;
+    text-align: center;
+    cursor: pointer;
+}
+
+.Tomato-compact-display {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 2.2rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: var(--text-normal);
+    line-height: 1;
+}
+
+.Tomato-compact-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    min-height: 14px;
+}
+
+.Tomato-compact-status {
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.Tomato-compact-today {
+    font-size: 0.55rem;
+    color: var(--text-faint);
+    white-space: nowrap;
+}
+
+.Tomato-compact-btn-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.Tomato-compact-icon-btn {
+    padding: 2px 4px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.8rem;
+    line-height: 1;
+    cursor: pointer;
+    min-width: 22px;
+    min-height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.Tomato-compact-icon-btn:hover {
+    background: var(--background-modifier-hover);
+}
+
+.Tomato-compact-icon-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.Tomato-compact-btn-primary {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+.Tomato-compact-btn-primary:hover {
+    opacity: 0.85;
+}
+
+.Tomato-compact-btn-danger {
+    color: var(--text-error);
+}
+
+.Tomato-compact-mode-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.Tomato-compact-mode-btn {
+    padding: 2px 4px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: transparent;
+    font-size: 0.8rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.5;
+    min-width: 22px;
+    min-height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.Tomato-compact-mode-btn:hover {
+    background: var(--background-modifier-hover);
+    opacity: 0.8;
+}
+
+.Tomato-compact-mode-btn.active {
+    opacity: 1;
+    background: var(--background-modifier-hover);
+    border-color: var(--interactive-accent);
+}
+
+/* Override Obsidian min-height for compact view so it can shrink */
+.Tomato-compact-leaf {
+    min-height: unset !important;
+}
+
+.Tomato-compact-leaf .workspace-leaf-content {
+    min-height: unset !important;
+    height: auto !important;
+}
+
+.Tomato-compact-leaf .view-content {
+    min-height: unset !important;
+    height: auto !important;
 }

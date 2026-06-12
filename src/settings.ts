@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import type TomatoPlugin from './main';
+import type { Lang } from './i18n';
 
 export interface TomatoPluginSettings {
     workMinutes: number;
@@ -10,6 +11,8 @@ export interface TomatoPluginSettings {
     enableSound: boolean;
     enableOsNotification: boolean;
     logFile: string;
+    countdownMinutes: number;
+    language: Lang;
 }
 
 export const DEFAULT_SETTINGS: TomatoPluginSettings = {
@@ -21,6 +24,8 @@ export const DEFAULT_SETTINGS: TomatoPluginSettings = {
     enableSound: true,
     enableOsNotification: true,
     logFile: 'Tomato Log.md',
+    countdownMinutes: 25,
+    language: 'zh',
 };
 
 export class TomatoSettingTab extends PluginSettingTab {
@@ -34,14 +39,33 @@ export class TomatoSettingTab extends PluginSettingTab {
     display(): void {
         const { containerEl } = this;
         containerEl.empty();
+        const _t = (k: string) => this.plugin.t(k);
 
-        new Setting(containerEl).setHeading().setName('Tomato Clock');
+        new Setting(containerEl).setHeading().setName(_t('settings.heading'));
+
+        // Language
+        new Setting(containerEl)
+            .setName(_t('settings.language'))
+            .addDropdown(d => d
+                .addOption('zh', '中文')
+                .addOption('en', 'English')
+                .setValue(this.plugin.settings.language)
+                .onChange(async v => {
+                    this.plugin.settings.language = v as Lang;
+                    await this.plugin.saveSettings();
+                    for (const leaf of this.app.workspace.getLeavesOfType('Tomato-timer-view')) {
+                        const view = (leaf as any).view as any;
+                        if (view?.updateTimerUI) view.updateTimerUI(this.plugin.timer.getState());
+                        if (view?.refreshHistory) void view.refreshHistory();
+                    }
+                    this.display();
+                }));
 
         // --- Durations ---
-        new Setting(containerEl).setHeading().setName('Durations');
+        new Setting(containerEl).setHeading().setName(_t('settings.durations'));
 
         new Setting(containerEl)
-            .setName('Work duration (min)')
+            .setName(_t('settings.workDuration'))
             .addSlider(s => s
                 .setLimits(1, 90, 1)
                 .setValue(this.plugin.settings.workMinutes)
@@ -53,7 +77,7 @@ export class TomatoSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('Short break (min)')
+            .setName(_t('settings.shortBreak'))
             .addSlider(s => s
                 .setLimits(1, 30, 1)
                 .setValue(this.plugin.settings.shortBreakMinutes)
@@ -65,7 +89,7 @@ export class TomatoSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('Long break (min)')
+            .setName(_t('settings.longBreak'))
             .addSlider(s => s
                 .setLimits(5, 60, 1)
                 .setValue(this.plugin.settings.longBreakMinutes)
@@ -77,8 +101,8 @@ export class TomatoSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('Cycles per set')
-            .setDesc('Number of work sessions before a long break')
+            .setName(_t('settings.cycles'))
+            .setDesc(_t('settings.cyclesDesc'))
             .addSlider(s => s
                 .setLimits(2, 8, 1)
                 .setValue(this.plugin.settings.cycles)
@@ -89,12 +113,25 @@ export class TomatoSettingTab extends PluginSettingTab {
                     this.plugin.applySettings();
                 }));
 
+        new Setting(containerEl)
+            .setName(_t('settings.countdownDuration'))
+            .setDesc(_t('settings.countdownDurationDesc'))
+            .addSlider(s => s
+                .setLimits(1, 120, 1)
+                .setValue(this.plugin.settings.countdownMinutes)
+                .setDynamicTooltip()
+                .onChange(async v => {
+                    this.plugin.settings.countdownMinutes = v;
+                    await this.plugin.saveSettings();
+                    this.plugin.applySettings();
+                }));
+
         // --- Behavior ---
-        new Setting(containerEl).setHeading().setName('Behavior');
+        new Setting(containerEl).setHeading().setName(_t('settings.behavior'));
 
         new Setting(containerEl)
-            .setName('Auto-start next phase')
-            .setDesc('Automatically begin the next work or break session')
+            .setName(_t('settings.autoStart'))
+            .setDesc(_t('settings.autoStartDesc'))
             .addToggle(t => t
                 .setValue(this.plugin.settings.autoStartNextPhase)
                 .onChange(async v => {
@@ -104,8 +141,8 @@ export class TomatoSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('Sound alert')
-            .setDesc('Play a short beep when a phase ends')
+            .setName(_t('settings.sound'))
+            .setDesc(_t('settings.soundDesc'))
             .addToggle(t => t
                 .setValue(this.plugin.settings.enableSound)
                 .onChange(async v => {
@@ -114,8 +151,8 @@ export class TomatoSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('OS notification')
-            .setDesc('Show a system notification when sessions complete — useful when Obsidian is in the background. Grant permission when prompted.')
+            .setName(_t('settings.osNotification'))
+            .setDesc(_t('settings.osNotificationDesc'))
             .addToggle(t => t
                 .setValue(this.plugin.settings.enableOsNotification)
                 .onChange(async v => {
@@ -124,11 +161,11 @@ export class TomatoSettingTab extends PluginSettingTab {
                 }));
 
         // --- Log ---
-        new Setting(containerEl).setHeading().setName('Log');
+        new Setting(containerEl).setHeading().setName(_t('settings.log'));
 
         new Setting(containerEl)
-            .setName('Log file path')
-            .setDesc('Markdown file where completed Tomatos are appended. E.g. Tomato Log.md or Journal/Tomato Log.md')
+            .setName(_t('settings.logFile'))
+            .setDesc(_t('settings.logFileDesc'))
             .addText(t => t
                 .setPlaceholder('Tomato Log.md')
                 .setValue(this.plugin.settings.logFile)

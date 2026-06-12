@@ -5,6 +5,7 @@ export interface TomatoEntry {
     date: string;     // YYYY-MM-DD
     time: string;     // HH:MM
     duration: number; // minutes (snapshot at time of completion)
+    taskName?: string;
 }
 
 export interface ParsedEntry {
@@ -40,7 +41,8 @@ export async function appendEntry(
     entry: TomatoEntry,
 ): Promise<void> {
     const path = normalizePath(settings.logFile);
-    const line = `- ${entry.time} (${entry.duration}m) `;
+    const taskPart = entry.taskName ? `${entry.taskName} ` : '';
+    const line = `- ${entry.time} (${entry.duration}m) ${taskPart}`;
     const dateHeader = `## ${entry.date}`;
 
     const existing = app.vault.getFileByPath(path);
