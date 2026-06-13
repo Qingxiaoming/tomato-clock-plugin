@@ -1,5 +1,5 @@
 import { Notice, Plugin, TFile, normalizePath } from 'obsidian';
-import { TomatoTimer, PhaseType, TimerState, TimerMode } from './timer';
+import { TomatoTimer, PhaseType, TimerState } from './timer';
 import { TomatoTimerView, VIEW_TYPE_Tomato } from './timerView';
 import { TomatoTimerCompactView, VIEW_TYPE_Tomato_Compact } from './timerViewCompact';
 import { DEFAULT_SETTINGS, TomatoPluginSettings, TomatoSettingTab } from './settings';

@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Menu, Notice, Modal, Setting, App } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Menu, Notice, Modal, Setting, App, normalizePath } from 'obsidian';
 import type TomatoPlugin from './main';
 import type { TimerState, TimerMode } from './timer';
 import { parseDayFile, todayString, timeToMinutes, writeDayEntries, type ParsedEntry } from './log';
@@ -247,7 +247,7 @@ export class TomatoTimerView extends ItemView {
             const d = new Date(this.navDate + 'T00:00:00');
             const isCurrentMonth = d.getFullYear() === new Date().getFullYear() && d.getMonth() === new Date().getMonth();
             const prefix = isCurrentMonth ? this.plugin.t('panel.week.thisMonth') : '';
-            const monthLabel = `${d.getFullYear()}�?{d.getMonth() + 1}月`;
+            const monthLabel = `${d.getFullYear()}年${d.getMonth() + 1}月`;
             this.weekTitleEl.setText(`${prefix ? prefix + ' · ' : ''}${monthLabel}`);
             this.todayBtn?.setText(this.plugin.t('panel.week.thisMonth'));
         }
@@ -281,18 +281,7 @@ export class TomatoTimerView extends ItemView {
 
         if (this.calendarView === 'month') {
             grid = wrap.createDiv({ cls: 'Tomato-cal-grid' });
-            grid.style.gridTemplateColumns = `44px repeat(${days.length}, minmax(30px, 1fr))`;
-            grid.style.gridTemplateRows = '32px 1fr';
-
-            const rulerPlaceholder = grid.createDiv({ cls: 'Tomato-cal-ruler-placeholder' });
-            rulerPlaceholder.style.borderBottom = '1px solid var(--background-modifier-border)';
-            for (let i = 0; i < days.length; i++) {
-                const date = days[i];
-                const header = grid.createDiv({ cls: 'Tomato-cal-col-header' });
-                if (i === 0) header.addClass('first-col');
-                header.style.borderBottom = '1px solid var(--background-modifier-border)';
-                header.createDiv({ cls: 'Tomato-cal-col-daynum', text: String(new Date(date + 'T00:00:00').getDate()) });
-            }
+            grid.style.gridTemplateColumns = `44px repeat(${days.length}, minmax(16px, 1fr))`;
 
             ruler = grid.createDiv({ cls: 'Tomato-cal-ruler Tomato-cal-ruler-month' });
         } else {
@@ -308,6 +297,24 @@ export class TomatoTimerView extends ItemView {
                 header.toggleClass('today', isToday);
                 header.createDiv({ cls: 'Tomato-cal-col-daynum', text: String(new Date(date + 'T00:00:00').getDate()) });
                 header.createDiv({ cls: 'Tomato-cal-col-dayname', text: dayNameShort(date, this.lang) });
+
+                header.addEventListener('contextmenu', (evt) => {
+                    evt.preventDefault();
+                    const menu = new Menu();
+                    menu.addItem((item) => {
+                        item.setTitle(this.plugin.t('panel.week.openLog'))
+                            .setIcon('document')
+                            .onClick(async () => {
+                                const path = normalizePath(`${this.plugin.settings.logFolder}/${date}.md`);
+                                const file = this.app.vault.getFileByPath(path);
+                                if (file) {
+                                    const leaf = this.app.workspace.getLeaf(false);
+                                    await leaf.openFile(file);
+                                }
+                            });
+                    });
+                    menu.showAtMouseEvent(evt);
+                });
             }
 
             grid = wrap.createDiv({ cls: 'Tomato-cal-grid' });
@@ -377,10 +384,10 @@ export class TomatoTimerView extends ItemView {
                 bar.style.backgroundColor = projectColor(this.plugin, pe.entry.project);
 
                 const title = pe.entry.project || pe.entry.taskName || '';
-                if (title) {
+                if (title && this.calendarView !== 'month') {
                     bar.createDiv({ cls: 'Tomato-cal-bar-title', text: title });
                 }
-                if (pe.entry.duration >= 15) {
+                if (pe.entry.duration >= 15 && this.calendarView === 'day') {
                     bar.createDiv({ cls: 'Tomato-cal-bar-time', text: `${pe.entry.startTime} ~ ${pe.entry.endTime}` });
                 }
 
@@ -583,17 +590,77 @@ export class TomatoTimerView extends ItemView {
                 this.renderOngoingBar(col, date);
             }
 
-            col.addEventListener('click', (evt) => {
-                if (evt.target !== col && !(evt.target as HTMLElement).hasClass('Tomato-cal-hline')) return;
-                const rect = col.getBoundingClientRect();
-                const y = (evt as MouseEvent).clientY - rect.top;
-                const ratio = Math.max(0, Math.min(1, y / rect.height));
-                const minute = Math.round(ratio * 1440);
-                const h = Math.floor(minute / 60);
-                const m = minute % 60;
-                const startTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-                this.showAddEntryDialog(date, startTime);
-            });
+            // Drag-to-create entry on day/week view
+            if (this.calendarView !== 'month') {
+                let dragSelectEl: HTMLElement | null = null;
+                let dragStartY = 0;
+                let isSelecting = false;
+
+                const onSelectMove = (e: MouseEvent) => {
+                    if (!isSelecting || !dragSelectEl) return;
+                    const rect = col.getBoundingClientRect();
+                    const currentY = e.clientY - rect.top;
+                    const startYLocal = dragStartY - rect.top;
+                    const top = Math.max(0, Math.min(startYLocal, currentY));
+                    const height = Math.abs(currentY - startYLocal);
+                    dragSelectEl.style.top = `${top}px`;
+                    dragSelectEl.style.height = `${height}px`;
+                };
+
+                const onSelectUp = (e: MouseEvent) => {
+                    if (!isSelecting || !dragSelectEl) return;
+                    isSelecting = false;
+
+                    const rect = col.getBoundingClientRect();
+                    const startYLocal = dragStartY - rect.top;
+                    const endYLocal = e.clientY - rect.top;
+                    const topY = Math.min(startYLocal, endYLocal);
+                    const bottomY = Math.max(startYLocal, endYLocal);
+
+                    if (bottomY - topY < 5) {
+                        dragSelectEl.remove();
+                        dragSelectEl = null;
+                        document.removeEventListener('mousemove', onSelectMove);
+                        document.removeEventListener('mouseup', onSelectUp);
+                        return;
+                    }
+
+                    const startRatio = Math.max(0, Math.min(1, topY / rect.height));
+                    const endRatio = Math.max(0, Math.min(1, bottomY / rect.height));
+                    const startMinute = Math.round(startRatio * 1440);
+                    const endMinute = Math.max(startMinute + 1, Math.round(endRatio * 1440));
+                    const sh = Math.floor(startMinute / 60);
+                    const sm = startMinute % 60;
+                    const eh = Math.floor(endMinute / 60);
+                    const em = endMinute % 60;
+                    const startTime = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
+                    const endTime = `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`;
+
+                    dragSelectEl.remove();
+                    dragSelectEl = null;
+                    document.removeEventListener('mousemove', onSelectMove);
+                    document.removeEventListener('mouseup', onSelectUp);
+
+                    this.showAddEntryDialog(date, startTime, endTime);
+                };
+
+                col.addEventListener('mousedown', (evt) => {
+                    if (evt.button !== 0) return;
+                    if (evt.target !== col && !(evt.target as HTMLElement).hasClass('Tomato-cal-hline')) return;
+                    evt.preventDefault();
+                    isSelecting = true;
+                    dragStartY = evt.clientY;
+
+                    dragSelectEl = col.createDiv({ cls: 'Tomato-cal-select-range' });
+                    const rect = col.getBoundingClientRect();
+                    const y = evt.clientY - rect.top;
+                    dragSelectEl.style.top = `${y}px`;
+                    dragSelectEl.style.height = '0px';
+
+                    document.addEventListener('mousemove', onSelectMove);
+                    document.addEventListener('mouseup', onSelectUp);
+                });
+            }
         }
     }
 
@@ -829,7 +896,7 @@ export class TomatoTimerView extends ItemView {
                 dot.style.backgroundColor = projectColor(this.plugin, entry.project);
 
                 const meta = row.createDiv({ cls: 'Tomato-list-meta' });
-                const rawTask = (entry.taskName || '').replace(/^tomato_project[�?]\s*\S+\s*/, '').trim();
+                const rawTask = (entry.taskName || '').replace(/^tomato_project：\s*\S+\s*/, '').trim();
                 const taskName = rawTask || entry.project || this.plugin.t('panel.stats.noProject');
                 meta.createDiv({ cls: 'Tomato-list-task', text: taskName });
                 meta.createDiv({ cls: 'Tomato-list-time', text: `${entry.startTime} ~ ${entry.endTime}` });
@@ -1013,7 +1080,7 @@ export class TomatoTimerView extends ItemView {
     }
 
     private editEntryDialog(date: string, index: number, entry: ParsedEntry): void {
-        const rawTask = entry.taskName.replace(/^tomato_project[�?]\s*\S+\s*/, '').trim();
+        const rawTask = entry.taskName.replace(/^tomato_project：\s*\S+\s*/, '').trim();
         new EntryModal(this.app, this.plugin, this.plugin.t('panel.entry.edit'), {
             startTime: entry.startTime,
             endTime: entry.endTime,
@@ -1053,17 +1120,18 @@ export class TomatoTimerView extends ItemView {
 
     private encodeProjectIntoTaskName(entry: ParsedEntry): void {
         if (entry.project) {
-            const rawTask = (entry.taskName || '').replace(/^tomato_project[�?]\s*\S+\s*/, '').trim();
-            entry.taskName = `tomato_project�?{entry.project}${rawTask ? ' ' + rawTask : ''}`;
+            const rawTask = (entry.taskName || '').replace(/^tomato_project：\s*\S+\s*/, '').trim();
+            entry.taskName = `tomato_project：${entry.project}${rawTask ? ' ' + rawTask : ''}`;
             entry.rest = entry.taskName;
         }
     }
 
-    private showAddEntryDialog(date: string, startTime: string): void {
+    private showAddEntryDialog(date: string, startTime: string, endTime?: string): void {
+        const durationMin = endTime ? Math.max(1, timeToMinutes(endTime) - timeToMinutes(startTime)) : 60;
         new EntryModal(this.app, this.plugin, this.plugin.t('panel.entry.add'), {
             startTime,
-            endTime: '',
-            duration: '60',
+            endTime: endTime || '',
+            duration: String(durationMin),
             project: this.plugin.timer.getCurrentProject() || '',
             task: this.plugin.timer.getTaskName() || '',
         }, (result) => {

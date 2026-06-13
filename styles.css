@@ -125,10 +125,59 @@
     border-color: var(--interactive-accent);
 }
 
-/* Bottom row: dots | clock | buttons | modes */
-.Tomato-compact-row {
+/* Current time row: time | mode switch */
+.Tomato-compact-current-row {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.Tomato-compact-current-time {
+    font-family: var(--tomato-compact-current-time-font-family, 'Courier New', Courier, monospace);
+    font-size: var(--tomato-compact-current-time-font-size, 1.7rem);
+    font-weight: 600;
+    color: var(--text-normal);
+    line-height: 1;
+}
+
+/* Today timeline */
+.Tomato-compact-timeline {
+    position: relative;
+    padding: 10px 0;
+}
+
+.Tomato-compact-timeline-track {
+    position: relative;
+    height: 6px;
+    background: var(--background-modifier-border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.Tomato-compact-timeline-seg {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    height: 100%;
+}
+
+.Tomato-compact-timeline-current {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--color-purple);
+    border-radius: 1px;
+    z-index: 2;
+}
+
+/* Timer row: dots | clock | action button */
+.Tomato-compact-timer-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
     gap: 6px;
 }
 
@@ -137,6 +186,7 @@
     flex-direction: column;
     gap: 3px;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .Tomato-compact-dot {
@@ -156,19 +206,29 @@
     box-shadow: 0 0 3px var(--color-orange);
 }
 
-.Tomato-compact-time-col {
-    flex: 1;
+.Tomato-compact-timer-col {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
     text-align: center;
     cursor: pointer;
 }
 
 .Tomato-compact-display {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 2.2rem;
+    font-family: var(--tomato-compact-timer-font-family, 'Courier New', Courier, monospace);
+    font-size: var(--tomato-compact-timer-font-size, 1.8rem);
     font-weight: bold;
     letter-spacing: 1px;
     color: var(--text-normal);
     line-height: 1;
+}
+
+.Tomato-compact-display.compact {
+    font-size: calc(var(--tomato-compact-timer-font-size, 1.8rem) * 0.85);
+}
+
+.Tomato-compact-display.ultra-compact {
+    font-size: calc(var(--tomato-compact-timer-font-size, 1.8rem) * 0.7);
 }
 
 .Tomato-compact-info-row {
@@ -192,10 +252,12 @@
     white-space: nowrap;
 }
 
-.Tomato-compact-btn-col {
+.Tomato-compact-action-col {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    flex-shrink: 0;
+    margin-left: auto;
 }
 
 .Tomato-compact-icon-btn {
@@ -234,16 +296,6 @@
     opacity: 0.85;
 }
 
-.Tomato-compact-btn-danger {
-    color: var(--text-error);
-}
-
-.Tomato-compact-mode-col {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
 .Tomato-compact-mode-btn {
     padding: 2px 4px;
     border-radius: 4px;
@@ -272,20 +324,6 @@
     border-color: var(--interactive-accent);
 }
 
-/* Override Obsidian min-height for compact view so it can shrink */
-.Tomato-compact-leaf {
-    min-height: unset !important;
-}
-
-.Tomato-compact-leaf .workspace-leaf-content {
-    min-height: unset !important;
-    height: auto !important;
-}
-
-.Tomato-compact-leaf .view-content {
-    min-height: unset !important;
-    height: auto !important;
-}
 
 /* =====================================================
    Project select (compact + full)
@@ -805,6 +843,17 @@
     z-index: 5;
     border: 1px dashed rgba(255, 255, 255, 0.4);
     animation: tomato-pulse 2s ease-in-out infinite;
+}
+
+.Tomato-cal-select-range {
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    background: var(--interactive-accent);
+    opacity: 0.35;
+    border-radius: 3px;
+    pointer-events: none;
+    z-index: 4;
 }
 
 @keyframes tomato-pulse {

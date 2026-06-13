@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab, Setting, DropdownComponent } from 'obsidian';
 import type TomatoPlugin from './main';
 import type { Lang } from './i18n';
 
@@ -23,6 +23,10 @@ export interface TomatoPluginSettings {
     showStatusBar: boolean;
     openLogOnComplete: boolean;
     calendarSnapMinutes: number;
+    compactCurrentTimeFontSize: number;
+    compactTimerFontSize: number;
+    compactCurrentTimeFontFamily: string;
+    compactTimerFontFamily: string;
 }
 
 export const DEFAULT_SETTINGS: TomatoPluginSettings = {
@@ -41,6 +45,10 @@ export const DEFAULT_SETTINGS: TomatoPluginSettings = {
     showStatusBar: true,
     openLogOnComplete: true,
     calendarSnapMinutes: 5,
+    compactCurrentTimeFontSize: 1.7,
+    compactTimerFontSize: 1.8,
+    compactCurrentTimeFontFamily: "'Courier New', Courier, monospace",
+    compactTimerFontFamily: "'Courier New', Courier, monospace",
 };
 
 export class TomatoSettingTab extends PluginSettingTab {
@@ -49,6 +57,43 @@ export class TomatoSettingTab extends PluginSettingTab {
     constructor(app: App, plugin: TomatoPlugin) {
         super(app, plugin);
         this.plugin = plugin;
+    }
+
+    private async loadSystemFonts(dropdown: DropdownComponent, currentValue: string): Promise<void> {
+        let fonts: string[] = [];
+        try {
+            if ('queryLocalFonts' in window) {
+                // @ts-ignore
+                const localFonts = await window.queryLocalFonts();
+                const names = new Set<string>();
+                for (const font of localFonts) {
+                    names.add(font.family);
+                }
+                fonts = Array.from(names).sort();
+            }
+        } catch {
+            // Local font query not available, use fallback list
+        }
+
+        if (fonts.length === 0) {
+            fonts = [
+                'Arial', 'Helvetica', 'Times New Roman', 'Georgia',
+                'Courier New', 'Consolas', 'Monaco',
+                'JetBrains Mono', 'Fira Code', 'Inter', 'Roboto', 'system-ui',
+                'Microsoft YaHei', 'SimSun', 'DengXian',
+                'PingFang SC', 'Hiragino Sans GB',
+                'Noto Sans CJK SC', 'Source Han Sans SC',
+            ];
+        }
+
+        if (!fonts.includes(currentValue)) {
+            fonts.unshift(currentValue);
+        }
+
+        for (const font of fonts) {
+            dropdown.addOption(font, font);
+        }
+        dropdown.setValue(currentValue);
     }
 
     display(): void {
@@ -197,6 +242,60 @@ export class TomatoSettingTab extends PluginSettingTab {
                     this.plugin.settings.calendarSnapMinutes = parseInt(v, 10);
                     await this.plugin.saveSettings();
                 }));
+
+        new Setting(containerEl)
+            .setName(_t('settings.compactCurrentTimeFontSize'))
+            .setDesc(_t('settings.compactCurrentTimeFontSizeDesc'))
+            .addSlider(s => s
+                .setLimits(0.8, 2.5, 0.1)
+                .setValue(this.plugin.settings.compactCurrentTimeFontSize)
+                .setDynamicTooltip()
+                .onChange(async v => {
+                    this.plugin.settings.compactCurrentTimeFontSize = v;
+                    await this.plugin.saveSettings();
+                    this.plugin.refreshAllViews();
+                }));
+
+        new Setting(containerEl)
+            .setName(_t('settings.compactTimerFontSize'))
+            .setDesc(_t('settings.compactTimerFontSizeDesc'))
+            .addSlider(s => s
+                .setLimits(0.8, 2.5, 0.1)
+                .setValue(this.plugin.settings.compactTimerFontSize)
+                .setDynamicTooltip()
+                .onChange(async v => {
+                    this.plugin.settings.compactTimerFontSize = v;
+                    await this.plugin.saveSettings();
+                    this.plugin.refreshAllViews();
+                }));
+
+        const currentTimeFontSetting = new Setting(containerEl)
+            .setName(_t('settings.compactCurrentTimeFontFamily'))
+            .setDesc(_t('settings.compactCurrentTimeFontFamilyDesc'));
+        let currentTimeFontDropdown: DropdownComponent;
+        currentTimeFontSetting.addDropdown(d => {
+            currentTimeFontDropdown = d;
+            d.onChange(async v => {
+                this.plugin.settings.compactCurrentTimeFontFamily = v;
+                await this.plugin.saveSettings();
+                this.plugin.refreshAllViews();
+            });
+        });
+        void this.loadSystemFonts(currentTimeFontDropdown!, this.plugin.settings.compactCurrentTimeFontFamily);
+
+        const timerFontSetting = new Setting(containerEl)
+            .setName(_t('settings.compactTimerFontFamily'))
+            .setDesc(_t('settings.compactTimerFontFamilyDesc'));
+        let timerFontDropdown: DropdownComponent;
+        timerFontSetting.addDropdown(d => {
+            timerFontDropdown = d;
+            d.onChange(async v => {
+                this.plugin.settings.compactTimerFontFamily = v;
+                await this.plugin.saveSettings();
+                this.plugin.refreshAllViews();
+            });
+        });
+        void this.loadSystemFonts(timerFontDropdown!, this.plugin.settings.compactTimerFontFamily);
 
         // --- Log ---
         new Setting(containerEl).setHeading().setName(_t('settings.log'));

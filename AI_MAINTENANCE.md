@@ -1,5 +1,7 @@
 # AI Maintenance Guide — Tomato Clock
 
+**Project Summary**: An Obsidian timer plugin (Pomodoro + Stopwatch + Countdown) with dual-panel UI, Toggl Track-style timeline, project-based statistics, daily logging, session recovery, and English/Chinese i18n.
+
 This document is written for AI assistants (and human maintainers) who need to understand, debug, or extend the Tomato Clock Obsidian plugin. Read this before making changes.
 
 ---

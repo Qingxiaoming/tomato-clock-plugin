@@ -2,7 +2,7 @@
 
 [中文说明](README.zh.md)
 
-A full-featured Obsidian timer plugin supporting Pomodoro, stopwatch, and countdown modes, with a Toggl Track-style timeline view and project statistics. All data stays local in your vault.
+**A full-featured timer plugin for Obsidian with Pomodoro, stopwatch, countdown modes, Toggl Track-style timeline, project statistics, and local-first data storage.**
 
 ## Features
 

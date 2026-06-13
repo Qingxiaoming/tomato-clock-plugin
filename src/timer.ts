@@ -93,6 +93,10 @@ export class TomatoTimer {
         this.countdownSeconds = minutes * 60;
     }
 
+    setCountdownSeconds(seconds: number): void {
+        this.countdownSeconds = seconds;
+    }
+
     setTaskName(name: string): void {
         this.taskName = name;
     }
@@ -225,7 +229,9 @@ export class TomatoTimer {
         this.sessionStartDate = data.sessionStartDate;
         this.sessionStartTime = data.sessionStartTime;
         this.sessionStartMode = data.sessionStartMode ?? data.mode;
-        this.countdownSeconds = data.countdownSeconds;
+        this.countdownSeconds = (typeof data.countdownSeconds === 'number' && data.countdownSeconds > 0)
+            ? data.countdownSeconds
+            : this.settings.countdownMinutes * 60;
         this.accumulatedMs = data.accumulatedMs;
 
         if (data.isRunning) {
@@ -290,9 +296,9 @@ export class TomatoTimer {
     }
 
     private currentPhase(): PhaseType {
-        if (this.reps === 0) return 'idle';
         if (this.mode === 'stopwatch') return 'stopwatch';
         if (this.mode === 'countdown') return 'countdown';
+        if (this.reps === 0) return 'idle';
         if (this.reps % (this.settings.cycles * 2) === 0) return 'longBreak';
         if (this.reps % 2 === 0) return 'shortBreak';
         return 'work';
