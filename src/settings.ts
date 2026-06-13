@@ -22,6 +22,7 @@ export interface TomatoPluginSettings {
     projects: ProjectConfig[];
     showStatusBar: boolean;
     openLogOnComplete: boolean;
+    calendarSnapMinutes: number;
 }
 
 export const DEFAULT_SETTINGS: TomatoPluginSettings = {
@@ -39,6 +40,7 @@ export const DEFAULT_SETTINGS: TomatoPluginSettings = {
     projects: [],
     showStatusBar: true,
     openLogOnComplete: true,
+    calendarSnapMinutes: 5,
 };
 
 export class TomatoSettingTab extends PluginSettingTab {
@@ -66,11 +68,8 @@ export class TomatoSettingTab extends PluginSettingTab {
                 .onChange(async v => {
                     this.plugin.settings.language = v as Lang;
                     await this.plugin.saveSettings();
-                    for (const leaf of this.app.workspace.getLeavesOfType('Tomato-timer-view')) {
-                        const view = (leaf as any).view as any;
-                        if (view?.updateTimerUI) view.updateTimerUI(this.plugin.timer.getState());
-                        if (view?.refreshHistory) void view.refreshHistory();
-                    }
+                    this.plugin.refreshAllViews();
+                    this.plugin.refreshLogViews();
                     this.display();
                 }));
 
@@ -184,6 +183,21 @@ export class TomatoSettingTab extends PluginSettingTab {
                     this.plugin.applySettings();
                 }));
 
+        new Setting(containerEl)
+            .setName(_t('settings.calendarSnap'))
+            .setDesc(_t('settings.calendarSnapDesc'))
+            .addDropdown(d => d
+                .addOption('1', '1 min')
+                .addOption('5', '5 min')
+                .addOption('10', '10 min')
+                .addOption('15', '15 min')
+                .addOption('30', '30 min')
+                .setValue(String(this.plugin.settings.calendarSnapMinutes))
+                .onChange(async v => {
+                    this.plugin.settings.calendarSnapMinutes = parseInt(v, 10);
+                    await this.plugin.saveSettings();
+                }));
+
         // --- Log ---
         new Setting(containerEl).setHeading().setName(_t('settings.log'));
 
@@ -230,19 +244,29 @@ export class TomatoSettingTab extends PluginSettingTab {
                     el.addEventListener('change', async () => {
                         this.plugin.settings.projects[idx].name = el.value.trim();
                         await this.plugin.saveSettings();
+                        this.plugin.refreshAllViews();
+                        this.plugin.refreshLogViews();
                     });
                 });
                 row.createEl('input', { type: 'color', value: proj.color || '#3b82f6', cls: 'Tomato-project-color' }, el => {
                     el.addEventListener('input', async () => {
                         this.plugin.settings.projects[idx].color = el.value;
                         await this.plugin.saveSettings();
+                        this.plugin.refreshAllViews();
+                        this.plugin.refreshLogViews();
                     });
                 });
                 row.createEl('button', { text: '🗑️', cls: 'Tomato-project-delete' }, el => {
                     el.addEventListener('click', async () => {
+                        const deleted = this.plugin.settings.projects[idx].name;
                         this.plugin.settings.projects.splice(idx, 1);
                         await this.plugin.saveSettings();
+                        if (this.plugin.timer.getCurrentProject() === deleted) {
+                            this.plugin.timer.setCurrentProject('');
+                        }
                         renderProjects();
+                        this.plugin.refreshAllViews();
+                        this.plugin.refreshLogViews();
                     });
                 });
             });
@@ -256,6 +280,8 @@ export class TomatoSettingTab extends PluginSettingTab {
                     this.plugin.settings.projects.push({ name: '', color: '#3b82f6' });
                     await this.plugin.saveSettings();
                     renderProjects();
+                    this.plugin.refreshAllViews();
+                    this.plugin.refreshLogViews();
                 }));
     }
 }

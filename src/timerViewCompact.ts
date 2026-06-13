@@ -18,7 +18,7 @@ export class TomatoTimerCompactView extends ItemView {
     private resetBtn!: HTMLButtonElement;
     private taskInput!: HTMLInputElement;
     private projectSelect!: HTMLSelectElement;
-    private modeBtns!: Record<TimerMode, HTMLButtonElement>;
+    private modeBtn!: HTMLButtonElement;
     private lastMinutesRefresh = 0;
     private uiBuilt = false;
 
@@ -114,22 +114,17 @@ export class TomatoTimerCompactView extends ItemView {
             stopwatch: '⏱',
             countdown: '⏳',
         };
-        this.modeBtns = { pomodoro: undefined!, stopwatch: undefined!, countdown: undefined! };
         const modeCycle: TimerMode[] = ['pomodoro', 'stopwatch', 'countdown'];
-        const modeBtn = modeCol.createEl('button', {
+        this.modeBtn = modeCol.createEl('button', {
             cls: 'Tomato-compact-mode-btn Tomato-compact-mode-toggle',
             text: modeIcons['pomodoro'],
         });
-        this.registerDomEvent(modeBtn, 'click', () => {
+        this.registerDomEvent(this.modeBtn, 'click', () => {
             const current = this.plugin.timer.getMode();
             const next = modeCycle[(modeCycle.indexOf(current) + 1) % modeCycle.length];
             this.plugin.timer.setMode(next);
             this.plugin.refreshAllViews?.();
         });
-        // Store reference under pomodoro key for updateTimerUI compatibility
-        this.modeBtns.pomodoro = modeBtn;
-        this.modeBtns.stopwatch = modeBtn;
-        this.modeBtns.countdown = modeBtn;
 
         /* ── Info row: status (left) | today minutes (right) ── */
         const infoRow = root.createDiv({ cls: 'Tomato-compact-info-row' });
@@ -156,8 +151,8 @@ export class TomatoTimerCompactView extends ItemView {
             stopwatch: '⏱',
             countdown: '⏳',
         };
-        this.modeBtns.pomodoro.setText(modeIcons[state.mode]);
-        this.modeBtns.pomodoro.toggleClass('active', true);
+        this.modeBtn.setText(modeIcons[state.mode]);
+        this.modeBtn.toggleClass('active', true);
 
         // Icon buttons — cleaner symbols
         if (state.phase === 'idle') {
@@ -186,6 +181,10 @@ export class TomatoTimerCompactView extends ItemView {
             });
         }
 
+        // Sync project select options if projects changed
+        if (this.projectSelect.options.length !== this.plugin.settings.projects.length + 1) {
+            this.renderProjectSelect();
+        }
         // Sync inputs
         if (this.projectSelect.value !== state.currentProject) {
             this.projectSelect.value = state.currentProject;
@@ -202,7 +201,7 @@ export class TomatoTimerCompactView extends ItemView {
         }
     }
 
-    private async refreshTodayMinutes(): Promise<void> {
+    async refreshTodayMinutes(): Promise<void> {
         try {
             const minutes = await getDayMinutes(this.app, this.plugin.settings, todayString());
             if (minutes > 0) {

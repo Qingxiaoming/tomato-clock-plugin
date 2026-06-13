@@ -28,8 +28,4 @@ export class NotificationService {
         }
     }
 
-    showNotice(message: string, duration = 4000): void {
-        const { Notice } = require('obsidian');
-        new Notice(message, duration);
-    }
 }

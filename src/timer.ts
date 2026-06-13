@@ -72,6 +72,7 @@ export class TomatoTimer {
         if (this.mode === 'countdown' && this.reps === 0) {
             this.countdownSeconds = settings.countdownMinutes * 60;
         }
+        this.notifyTick();
     }
 
     onTick(cb: TimerTickCallback): void { this.onTickCb = cb; }
@@ -118,6 +119,26 @@ export class TomatoTimer {
 
     getSessionStartMode(): TimerMode {
         return this.sessionStartMode;
+    }
+
+    adjustSessionStart(minuteDelta: number): void {
+        const [h, m] = this.sessionStartTime.split(':').map(Number);
+        let totalMin = h * 60 + m + minuteDelta;
+        const d = new Date(this.sessionStartDate + 'T00:00:00');
+        while (totalMin < 0) {
+            d.setDate(d.getDate() - 1);
+            totalMin += 1440;
+        }
+        while (totalMin >= 1440) {
+            d.setDate(d.getDate() + 1);
+            totalMin -= 1440;
+        }
+        this.sessionStartDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        this.sessionStartTime = `${String(Math.floor(totalMin / 60)).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`;
+        if (this.isRunning) {
+            this.startTime += minuteDelta * 60000;
+        }
+        this.notifyTick();
     }
 
     start(): void {

@@ -2,14 +2,15 @@
   "mode": "stopwatch",
   "phase": "stopwatch",
   "isRunning": true,
-  "startTime": 1781303165102,
-  "accumulatedMs": 1062530,
+  "startTime": 1781330223444,
+  "accumulatedMs": 19542471,
   "taskName": "",
-  "currentProject": "生活",
-  "lastUpdated": 1781304227632,
+  "currentProject": "学习",
+  "lastUpdated": 1781331833459,
   "sessionStartDate": "2026-06-13",
-  "sessionStartTime": "06:26",
+  "sessionStartTime": "09:00",
   "countdownSeconds": 1500,
   "reps": 1,
-  "completedTomatos": 1
+  "completedTomatos": 1,
+  "sessionStartMode": "stopwatch"
 }

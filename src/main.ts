@@ -3,7 +3,7 @@ import { TomatoTimer, PhaseType, TimerState, TimerMode } from './timer';
 import { TomatoTimerView, VIEW_TYPE_Tomato } from './timerView';
 import { TomatoTimerCompactView, VIEW_TYPE_Tomato_Compact } from './timerViewCompact';
 import { DEFAULT_SETTINGS, TomatoPluginSettings, TomatoSettingTab } from './settings';
-import { appendEntry, nowTimeString, todayString, parseDayFile } from './log';
+import { appendEntry, nowTimeString, todayString } from './log';
 import { t, tf } from './i18n';
 import { NotificationService } from './services/notification';
 import { RecoveryService } from './services/recovery';
@@ -109,13 +109,11 @@ export default class TomatoPlugin extends Plugin {
             },
         });
 
-        // Watch log folder changes → refresh history on full panel only
+        // Watch log folder changes → refresh all views that depend on log data
         this.registerEvent(this.app.vault.on('modify', file => {
             const folder = normalizePath(this.settings.logFolder);
             if (normalizePath(file.path).startsWith(folder + '/')) {
-                for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato)) {
-                    if (leaf.view instanceof TomatoTimerView) void leaf.view.refreshTabContent();
-                }
+                this.refreshLogViews();
             }
         }));
 
@@ -146,6 +144,8 @@ export default class TomatoPlugin extends Plugin {
             countdownMinutes: this.settings.countdownMinutes,
         });
         this.toggleStatusBar();
+        this.refreshAllViews();
+        this.refreshStatusBar(this.timer.getState());
     }
 
     toggleStatusBar(): void {
@@ -192,23 +192,31 @@ export default class TomatoPlugin extends Plugin {
         }
     }
 
+    refreshLogViews(): void {
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato)) {
+            if (leaf.view instanceof TomatoTimerView) void leaf.view.refreshTabContent();
+        }
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato_Compact)) {
+            if (leaf.view instanceof TomatoTimerCompactView) void leaf.view.refreshTodayMinutes();
+        }
+    }
+
     private onTick(state: TimerState): void {
         this.refreshStatusBar(state);
         this.refreshAllViews();
     }
 
     private async onPhaseComplete(completed: PhaseType, _next: PhaseType, durationMinutes: number): Promise<void> {
-        let msg: string;
-        if (completed === 'work') msg = this.t('notice.tomatoDone');
-        else if (completed === 'stopwatch') msg = this.t('notice.stopwatchStopped');
-        else if (completed === 'countdown') msg = this.t('notice.countdownFinished');
-        else msg = this.t('notice.breakOver');
-        new Notice(msg, 4000);
-
-        this.notificationService.send(
-            completed === 'work' ? this.t('notice.title.tomatoDone') : completed === 'stopwatch' ? this.t('notice.title.stopwatchStopped') : completed === 'countdown' ? this.t('notice.title.countdownFinished') : this.t('notice.title.breakOver'),
-            completed === 'work' ? this.t('notice.body.rest') : completed === 'stopwatch' ? this.t('notice.body.sessionLogged') : completed === 'countdown' ? this.t('notice.body.timeUp') : this.t('notice.body.backToFocus'),
-        );
+        const noticeMap: Record<string, { msg: string; title: string; body: string }> = {
+            work: { msg: 'notice.tomatoDone', title: 'notice.title.tomatoDone', body: 'notice.body.rest' },
+            stopwatch: { msg: 'notice.stopwatchStopped', title: 'notice.title.stopwatchStopped', body: 'notice.body.sessionLogged' },
+            countdown: { msg: 'notice.countdownFinished', title: 'notice.title.countdownFinished', body: 'notice.body.timeUp' },
+            shortBreak: { msg: 'notice.breakOver', title: 'notice.title.breakOver', body: 'notice.body.backToFocus' },
+            longBreak: { msg: 'notice.breakOver', title: 'notice.title.breakOver', body: 'notice.body.backToFocus' },
+        };
+        const n = noticeMap[completed] ?? noticeMap.shortBreak;
+        new Notice(this.t(n.msg), 4000);
+        this.notificationService.send(this.t(n.title), this.t(n.body));
 
         this.notificationService.beep();
 
@@ -228,9 +236,7 @@ export default class TomatoPlugin extends Plugin {
             if (this.settings.openLogOnComplete) {
                 await this.openLogForEditing();
             }
-            for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato)) {
-                if (leaf.view instanceof TomatoTimerView) void leaf.view.refreshTabContent();
-            }
+            this.refreshLogViews();
             // Auto-reset for stopwatch/countdown and clear task/project
             if (completed === 'stopwatch' || completed === 'countdown') {
                 this.timer.reset();

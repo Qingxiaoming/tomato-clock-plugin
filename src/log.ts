@@ -147,25 +147,6 @@ export async function parseDayFile(
     return { date: dateStr, entries };
 }
 
-/** Parse logs for a specific day, including cross-day entries from the previous day. */
-export async function parseDayWithPrev(
-    app: App,
-    settings: TomatoPluginSettings,
-    dateStr: string,
-): Promise<DayRecord> {
-    const today = await parseDayFile(app, settings, dateStr);
-    const prevDate = prevDayString(dateStr);
-    const prev = await parseDayFile(app, settings, prevDate);
-
-    // Add cross-day tail from previous day's entries
-    for (const e of prev.entries) {
-        if (isCrossDay(e.startTime, e.endTime)) {
-            today.entries.push({ ...e, date: prevDate });
-        }
-    }
-    return today;
-}
-
 /** Total minutes for a specific day, handling cross-day splits correctly. */
 export async function getDayMinutes(
     app: App,
@@ -213,6 +194,41 @@ export function nextDayString(dateStr: string): string {
     const d = new Date(dateStr + 'T00:00:00');
     d.setDate(d.getDate() + 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export async function writeDayEntries(
+    app: App,
+    settings: TomatoPluginSettings,
+    dateStr: string,
+    entries: ParsedEntry[],
+): Promise<void> {
+    const path = normalizePath(logFilePath(settings, dateStr));
+    const file = app.vault.getFileByPath(path);
+
+    let header = '';
+    if (settings.enableDailyNoteLink) {
+        const dailyPath = getDailyNotePath(app, dateStr);
+        if (dailyPath) {
+            header = `[[${dailyPath}]]\n\n`;
+        }
+    }
+
+    const lines = entries.map(e => {
+        const taskPart = e.taskName ? ` ${e.taskName}` : '';
+        return `- ${e.startTime} ~ ${e.endTime} (${e.duration}m) [${e.mode}]${taskPart}`;
+    });
+    const content = header + lines.join('\n') + (lines.length > 0 ? '\n' : '');
+
+    if (file instanceof TFile) {
+        await app.vault.modify(file, content);
+    } else {
+        const folder = normalizePath(settings.logFolder);
+        const folderExists = await app.vault.adapter.exists(folder);
+        if (!folderExists) {
+            await app.vault.adapter.mkdir(folder);
+        }
+        await app.vault.create(path, content);
+    }
 }
 
 

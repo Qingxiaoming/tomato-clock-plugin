@@ -1,66 +1,93 @@
-import { ItemView, MarkdownRenderer, WorkspaceLeaf, normalizePath, TFile } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Menu, Notice, Modal, Setting, App } from 'obsidian';
 import type TomatoPlugin from './main';
-import type { TimerState, PhaseType, TimerMode } from './timer';
-import { parseDayFile, todayString, parseProject, type DayRecord, timeToMinutes } from './log';
+import type { TimerState, TimerMode } from './timer';
+import { parseDayFile, todayString, timeToMinutes, writeDayEntries, type ParsedEntry } from './log';
 import {
-    dateRangeDays,
-    readEntriesInRange,
-    startOfWeek,
-    startOfMonth,
-    startOfYear,
+    weekDays,
+    weekNumber,
+    addDays,
+    formatDateShort,
+    dayNameShort,
     minutesToHM,
     projectColor,
-    type StatsPeriod,
+    startOfWeek,
+    daysInMonth,
 } from './utils';
 
 export const VIEW_TYPE_Tomato = 'Tomato-timer-view';
 
-type TabType = 'timeline' | 'stats' | 'history';
+type TabType = 'calendar' | 'list' | 'timesheet' | 'stats';
+type CalendarView = 'day' | 'week' | 'month';
+
+type WeekEntry = ParsedEntry & { date: string; originalIndex: number };
+
+interface PositionedEntry {
+    entry: ParsedEntry;
+    index: number;
+    left: number;
+    width: number;
+}
 
 export class TomatoTimerView extends ItemView {
     private plugin: TomatoPlugin;
 
-    private timerDisplayEl!: HTMLElement;
-    private statusTextEl!: HTMLElement;
-    private phaseDotEls: HTMLElement[] = [];
-    private dotsEl!: HTMLElement;
-    private startPauseBtn!: HTMLButtonElement;
-    private skipBtn!: HTMLButtonElement;
-    private resetBtn!: HTMLButtonElement;
-    private completedCountEl!: HTMLElement;
-
-    private modeBtns: Record<TimerMode, HTMLButtonElement> | null = null;
-    private taskInput!: HTMLInputElement;
-    private projectSelect!: HTMLSelectElement;
-    private countdownWrap!: HTMLElement;
-    private countdownInput!: HTMLInputElement;
-
+    private weekViewEl!: HTMLElement;
+    private weekTitleEl!: HTMLElement;
+    private viewTabBtns!: Record<TabType, HTMLButtonElement>;
     private tabContentEl!: HTMLElement;
-    private currentTab: TabType = 'timeline';
-    private timelineDate: string = todayString();
-    private statsPeriod: StatsPeriod = 'day';
-    private tabBtns!: Record<TabType, HTMLButtonElement>;
-    private refreshing = false;
+
+    private currentTab: TabType = 'calendar';
+    private calendarView: CalendarView = 'week';
+    private navDate: string = todayString();
+    private get lang(): 'zh' | 'en' {
+        return this.plugin.settings.language as 'zh' | 'en';
+    }
     private uiBuilt = false;
+    private calendarInterval?: number;
+    private currentLineEl?: HTMLElement;
+    private currentLineLabel?: HTMLElement;
+    private ongoingBarEl?: HTMLElement;
+    private ongoingBarLabel?: HTMLElement;
+    private isDraggingOngoing = false;
+    private todayBtn?: HTMLButtonElement;
 
     constructor(leaf: WorkspaceLeaf, plugin: TomatoPlugin) {
         super(leaf);
         this.plugin = plugin;
     }
 
-    getViewType(): string { return VIEW_TYPE_Tomato; }
-    getDisplayText(): string { return this.plugin.t('panel.title'); }
-    getIcon(): string { return 'timer'; }
+    getViewType(): string {
+        return VIEW_TYPE_Tomato;
+    }
+
+    getDisplayText(): string {
+        return this.plugin.t('panel.tab.timeline');
+    }
+
+    getIcon(): string {
+        return 'timer';
+    }
 
     async onOpen(): Promise<void> {
         this.buildUI();
         this.updateTimerUI(this.plugin.timer.getState());
         await this.refreshTabContent();
+        this.calendarInterval = window.setInterval(() => this.updateCurrentTimeLine(), 10000);
     }
 
     async onClose(): Promise<void> {
         this.uiBuilt = false;
+        if (this.calendarInterval) {
+            clearInterval(this.calendarInterval);
+            this.calendarInterval = undefined;
+        }
+        this.currentLineEl = undefined;
+        this.currentLineLabel = undefined;
+        this.ongoingBarEl = undefined;
+        this.ongoingBarLabel = undefined;
     }
+
+    // ========== BUILD UI ==========
 
     private buildUI(): void {
         if (this.uiBuilt) return;
@@ -69,544 +96,1094 @@ export class TomatoTimerView extends ItemView {
         root.empty();
         root.addClass('Tomato-container');
 
-        // Header
-        const header = root.createDiv({ cls: 'Tomato-header' });
-        header.createDiv({ cls: 'Tomato-icon', text: '🍅' });
-        const titleRow = header.createDiv({ cls: 'Tomato-title-row' });
-        titleRow.createSpan({ text: this.plugin.t('panel.title') });
-        this.completedCountEl = titleRow.createSpan({ cls: 'Tomato-count' });
+        this.weekViewEl = root.createDiv({ cls: 'Tomato-week-view' });
 
-        // Mode switcher
-        const modeSwitcher = root.createDiv({ cls: 'Tomato-mode-switcher' });
-        this.modeBtns = {
-            pomodoro: modeSwitcher.createEl('button', { cls: 'Tomato-mode-btn', text: this.plugin.t('panel.mode.pomodoro') }),
-            stopwatch: modeSwitcher.createEl('button', { cls: 'Tomato-mode-btn', text: this.plugin.t('panel.mode.stopwatch') }),
-            countdown: modeSwitcher.createEl('button', { cls: 'Tomato-mode-btn', text: this.plugin.t('panel.mode.countdown') }),
-        };
-        (Object.keys(this.modeBtns) as TimerMode[]).forEach(mode => {
-            this.registerDomEvent(this.modeBtns![mode], 'click', () => this.setMode(mode));
+        // Week nav
+        const navRow = this.weekViewEl.createDiv({ cls: 'Tomato-week-nav' });
+        const navLeft = navRow.createDiv({ cls: 'Tomato-week-nav-left' });
+        const prevBtn = navLeft.createEl('button', {
+            cls: 'Tomato-week-nav-btn', text: '<'
+        });
+        this.weekTitleEl = navLeft.createEl('span', { cls: 'Tomato-week-title' });
+        const nextBtn = navLeft.createEl('button', {
+            cls: 'Tomato-week-nav-btn', text: '>'
+        });
+        this.todayBtn = navRow.createEl('button', { cls: 'Tomato-week-nav-btn Tomato-week-today-btn', text: this.plugin.t('panel.history.today') });
+        const navRight = navRow.createDiv({ cls: 'Tomato-cal-view-switch' });
+        const viewDayBtn = navRight.createEl('button', { cls: 'Tomato-cal-view-btn', text: this.plugin.t('panel.view.day') });
+        const viewWeekBtn = navRight.createEl('button', { cls: 'Tomato-cal-view-btn active', text: this.plugin.t('panel.view.week') });
+        const viewMonthBtn = navRight.createEl('button', { cls: 'Tomato-cal-view-btn', text: this.plugin.t('panel.view.month') });
+        const viewBtns: Record<CalendarView, HTMLButtonElement> = { day: viewDayBtn, week: viewWeekBtn, month: viewMonthBtn };
+
+        this.registerDomEvent(prevBtn, 'click', () => {
+            if (this.calendarView === 'day') {
+                this.navDate = addDays(this.navDate, -1);
+            } else if (this.calendarView === 'week') {
+                this.navDate = addDays(this.navDate, -7);
+            } else {
+                const d = new Date(this.navDate + 'T00:00:00');
+                d.setMonth(d.getMonth() - 1);
+                this.navDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            }
+            void this.refreshTabContent();
+        });
+        this.registerDomEvent(nextBtn, 'click', () => {
+            if (this.calendarView === 'day') {
+                this.navDate = addDays(this.navDate, 1);
+            } else if (this.calendarView === 'week') {
+                this.navDate = addDays(this.navDate, 7);
+            } else {
+                const d = new Date(this.navDate + 'T00:00:00');
+                d.setMonth(d.getMonth() + 1);
+                this.navDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            }
+            void this.refreshTabContent();
+        });
+        this.registerDomEvent(this.todayBtn, 'click', () => {
+            this.navDate = todayString();
+            void this.refreshTabContent();
         });
 
-        // Project + Task row
-        const taskRow = root.createDiv({ cls: 'Tomato-task-row' });
-        this.projectSelect = taskRow.createEl('select', { cls: 'Tomato-project-select' });
-        this.registerDomEvent(this.projectSelect, 'change', () => {
-            this.plugin.timer.setCurrentProject(this.projectSelect.value);
-        });
-        this.renderProjectSelect();
-
-        this.taskInput = taskRow.createEl('input', {
-            cls: 'Tomato-task-input',
-            attr: { placeholder: this.plugin.t('panel.taskPlaceholder') },
-        });
-        this.registerDomEvent(this.taskInput, 'input', () => {
-            this.plugin.timer.setTaskName(this.taskInput.value);
-        });
-
-        // Countdown minutes input
-        this.countdownWrap = root.createDiv({ cls: 'Tomato-countdown-wrap' });
-        this.countdownWrap.createSpan({ text: this.plugin.t('panel.countdownLabel') });
-        this.countdownInput = this.countdownWrap.createEl('input', {
-            cls: 'Tomato-countdown-input',
-            attr: { type: 'number', min: '1', value: String(this.plugin.settings.countdownMinutes) },
-        });
-        this.registerDomEvent(this.countdownInput, 'change', () => {
-            const v = parseInt(this.countdownInput.value, 10);
-            if (v > 0) this.plugin.timer.setCountdownMinutes(v);
-        });
-
-        // Progress dots
-        this.dotsEl = root.createDiv({ cls: 'Tomato-dots' });
-        this.phaseDotEls = [];
-        for (let i = 0; i < this.plugin.settings.cycles; i++) {
-            this.phaseDotEls.push(this.dotsEl.createDiv({ cls: 'Tomato-dot' }));
-        }
-
-        // Timer display
-        const timerArea = root.createDiv({ cls: 'Tomato-timer-area' });
-        this.timerDisplayEl = timerArea.createDiv({ cls: 'Tomato-timer-display', text: '--' });
-        this.statusTextEl = timerArea.createDiv({ cls: 'Tomato-status-text', text: this.plugin.t('panel.status.ready') });
-
-        // Controls
-        const controls = root.createDiv({ cls: 'Tomato-controls' });
-        this.startPauseBtn = controls.createEl('button', {
-            cls: 'Tomato-btn Tomato-btn-primary',
-            text: this.plugin.t('panel.btn.start'),
-        });
-        this.registerDomEvent(this.startPauseBtn, 'click', () => this.onStartPause());
-
-        this.skipBtn = controls.createEl('button', {
-            cls: 'Tomato-btn Tomato-btn-secondary',
-            text: this.plugin.t('panel.btn.skip'),
-        });
-        this.skipBtn.disabled = true;
-        this.registerDomEvent(this.skipBtn, 'click', () => this.plugin.timer.skip());
-
-        this.resetBtn = controls.createEl('button', {
-            cls: 'Tomato-btn Tomato-btn-danger',
-            text: this.plugin.t('panel.btn.reset'),
-        });
-        this.registerDomEvent(this.resetBtn, 'click', () => this.plugin.timer.reset());
-
-        // Tabs
-        const tabs = root.createDiv({ cls: 'Tomato-tabs' });
-        this.tabBtns = {
-            timeline: tabs.createEl('button', { cls: 'Tomato-tab-btn active', text: this.plugin.t('panel.tab.timeline') }),
-            stats: tabs.createEl('button', { cls: 'Tomato-tab-btn', text: this.plugin.t('panel.tab.stats') }),
-            history: tabs.createEl('button', { cls: 'Tomato-tab-btn', text: this.plugin.t('panel.tab.history') }),
-        };
-        (Object.keys(this.tabBtns) as TabType[]).forEach(tab => {
-            this.registerDomEvent(this.tabBtns[tab], 'click', () => {
-                this.currentTab = tab;
-                (Object.keys(this.tabBtns) as TabType[]).forEach(t => this.tabBtns[t].toggleClass('active', t === tab));
+        (Object.keys(viewBtns) as CalendarView[]).forEach(v => {
+            this.registerDomEvent(viewBtns[v], 'click', () => {
+                this.calendarView = v;
+                (Object.keys(viewBtns) as CalendarView[]).forEach(k => {
+                    viewBtns[k].toggleClass('active', k === v);
+                });
                 void this.refreshTabContent();
             });
         });
 
-        this.tabContentEl = root.createDiv({ cls: 'Tomato-tab-content' });
-    }
+        // View tabs
+        const viewTabs = this.weekViewEl.createDiv({ cls: 'Tomato-view-tabs' });
+        this.viewTabBtns = {
+            calendar: viewTabs.createEl('button', { cls: 'Tomato-view-tab active', text: this.plugin.t('panel.tab.calendar') }),
+            list: viewTabs.createEl('button', { cls: 'Tomato-view-tab', text: this.plugin.t('panel.tab.list') }),
+            timesheet: viewTabs.createEl('button', { cls: 'Tomato-view-tab', text: this.plugin.t('panel.tab.timesheet') }),
+            stats: viewTabs.createEl('button', { cls: 'Tomato-view-tab', text: this.plugin.t('panel.tab.stats') }),
+        };
+        (Object.keys(this.viewTabBtns) as TabType[]).forEach(tab => {
+            this.registerDomEvent(this.viewTabBtns[tab], 'click', () => {
+                this.currentTab = tab;
+                (Object.keys(this.viewTabBtns) as TabType[]).forEach(t => {
+                    this.viewTabBtns[t].toggleClass('active', t === tab);
+                });
+                void this.refreshTabContent();
+            });
+        });
 
-    private setMode(mode: TimerMode): void {
-        this.plugin.timer.setMode(mode);
-        if (mode === 'countdown') {
-            const v = parseInt(this.countdownInput.value, 10);
-            this.plugin.timer.setCountdownMinutes(v > 0 ? v : this.plugin.settings.countdownMinutes);
-        }
-        this.updateTimerUI(this.plugin.timer.getState());
-    }
-
-    private onStartPause(): void {
-        const s = this.plugin.timer.getState();
-        if (s.phase === 'idle') this.plugin.timer.start();
-        else if (s.isRunning) this.plugin.timer.pause();
-        else this.plugin.timer.resume();
+        // Tab content
+        this.tabContentEl = this.weekViewEl.createDiv({ cls: 'Tomato-week-tab-content' });
     }
 
     updateTimerUI(state: TimerState): void {
-        if (this.modeBtns) {
-            (Object.keys(this.modeBtns) as TimerMode[]).forEach(mode => {
-                this.modeBtns![mode].toggleClass('active', state.mode === mode);
-            });
-        }
-
-        this.countdownWrap.style.display = state.mode === 'countdown' ? 'flex' : 'none';
-        this.dotsEl.style.display = state.mode === 'pomodoro' ? 'flex' : 'none';
-
-        const displaySeconds = state.mode === 'stopwatch' ? state.elapsedSeconds : state.remainingSeconds;
-        this.timerDisplayEl.setText(this.fmtTime(displaySeconds));
-        this.statusTextEl.setText(this.phaseLabel(state));
-        this.contentEl.setAttribute('data-phase', state.phase);
-
-        const stopLabel = state.mode === 'stopwatch' || state.mode === 'countdown'
-            ? this.plugin.t('panel.btn.stop')
-            : this.plugin.t('panel.btn.skip');
-
-        if (state.phase === 'idle') {
-            this.startPauseBtn.setText(this.plugin.t('panel.btn.start'));
-            this.skipBtn.setText(stopLabel);
-            this.skipBtn.disabled = true;
-        } else if (state.isRunning) {
-            this.startPauseBtn.setText(this.plugin.t('panel.btn.pause'));
-            this.skipBtn.setText(stopLabel);
-            this.skipBtn.disabled = false;
-        } else {
-            this.startPauseBtn.setText(this.plugin.t('panel.btn.resume'));
-            this.skipBtn.setText(stopLabel);
-            this.skipBtn.disabled = false;
-        }
-
-        this.resetBtn.disabled = state.isRunning;
-
-        if (state.mode === 'pomodoro') {
-            const doneInCycle = state.completedTomatos % this.plugin.settings.cycles;
-            this.phaseDotEls.forEach((dot, i) => {
-                dot.toggleClass('completed', i < doneInCycle);
-                dot.toggleClass('active', state.phase === 'work' && state.isRunning && i === doneInCycle);
-            });
-        } else {
-            this.phaseDotEls.forEach(dot => {
-                dot.removeClass('completed', 'active');
-            });
-        }
-
-        this.completedCountEl.setText(state.completedTomatos > 0 ? ` ×${state.completedTomatos}` : '');
-
-        if (this.projectSelect.value !== state.currentProject) {
-            this.projectSelect.value = state.currentProject;
-        }
-        if (this.taskInput.value !== state.taskName) {
-            this.taskInput.value = state.taskName;
+        if (this.ongoingBarEl?.isConnected) {
+            this.ongoingBarEl.style.backgroundColor = projectColor(this.plugin, state.currentProject);
+            const title = state.taskName || state.currentProject || this.plugin.t('panel.timer.running');
+            const titleEl = this.ongoingBarEl.querySelector('.Tomato-cal-bar-title') as HTMLElement | null;
+            if (titleEl) titleEl.setText(title);
         }
     }
 
-    renderProjectSelect(): void {
-        const current = this.plugin.timer?.getCurrentProject() ?? '';
-        this.projectSelect.empty();
-        this.projectSelect.createEl('option', { text: this.plugin.t('panel.projectPlaceholder'), value: '' });
-        for (const proj of this.plugin.settings.projects) {
-            this.projectSelect.createEl('option', { text: proj.name, value: proj.name });
-        }
-        this.projectSelect.value = current;
-    }
+    // ========== WEEK VIEW ==========
 
     async refreshTabContent(): Promise<void> {
-        if (this.refreshing) return;
-        this.refreshing = true;
-        try {
-            this.tabContentEl.empty();
-            if (this.currentTab === 'timeline') {
-                await this.renderTimeline();
-            } else if (this.currentTab === 'stats') {
-                await this.renderStats();
-            } else {
-                await this.renderHistory();
+        if (!this.uiBuilt) return;
+        this.currentLineEl = undefined;
+        this.currentLineLabel = undefined;
+        this.ongoingBarEl = undefined;
+        this.ongoingBarLabel = undefined;
+        this.renderWeekNavTitle();
+        let days: string[];
+        if (this.calendarView === 'day') {
+            days = [this.navDate];
+        } else if (this.calendarView === 'week') {
+            days = weekDays(this.navDate);
+        } else {
+            days = daysInMonth(this.navDate);
+        }
+
+        const allEntries: WeekEntry[] = [];
+        for (const date of days) {
+            const dayRecord = await parseDayFile(this.plugin.app, this.plugin.settings, date);
+            for (let i = 0; i < dayRecord.entries.length; i++) {
+                allEntries.push({ ...dayRecord.entries[i], date, originalIndex: i });
             }
-        } finally {
-            this.refreshing = false;
+        }
+
+        this.tabContentEl.empty();
+
+        switch (this.currentTab) {
+            case 'calendar':
+                this.renderCalendar(allEntries, days);
+                break;
+            case 'list':
+                this.renderList(allEntries);
+                break;
+            case 'timesheet':
+                this.renderTimesheet(allEntries);
+                break;
+            case 'stats':
+                this.renderStats(allEntries);
+                break;
         }
     }
 
-    // ===== Timeline =====
-    async renderTimeline(): Promise<void> {
-        const el = this.tabContentEl;
+    private renderWeekNavTitle(): void {
+        if (this.calendarView === 'day') {
+            const isToday = this.navDate === todayString();
+            const prefix = isToday ? this.plugin.t('panel.timeline.today') : '';
+            this.weekTitleEl.setText(`${prefix ? prefix + ' · ' : ''}${this.navDate}`);
+            this.todayBtn?.setText(this.plugin.t('panel.history.today'));
+        } else if (this.calendarView === 'week') {
+            const start = startOfWeek(this.navDate);
+            const end = addDays(start, 6);
+            const wn = weekNumber(this.navDate);
+            const isCurrentWeek = start === startOfWeek(todayString());
+            const prefix = isCurrentWeek ? this.plugin.t('panel.week.thisWeek') : '';
+            this.weekTitleEl.setText(`${prefix ? prefix + ' · ' : ''}W${wn} (${formatDateShort(start)} ~ ${formatDateShort(end)})`);
+            this.todayBtn?.setText(this.plugin.t('panel.week.thisWeek'));
+        } else {
+            const d = new Date(this.navDate + 'T00:00:00');
+            const isCurrentMonth = d.getFullYear() === new Date().getFullYear() && d.getMonth() === new Date().getMonth();
+            const prefix = isCurrentMonth ? this.plugin.t('panel.week.thisMonth') : '';
+            const monthLabel = `${d.getFullYear()}�?{d.getMonth() + 1}月`;
+            this.weekTitleEl.setText(`${prefix ? prefix + ' · ' : ''}${monthLabel}`);
+            this.todayBtn?.setText(this.plugin.t('panel.week.thisMonth'));
+        }
+    }
 
-        // Date navigator
-        const nav = el.createDiv({ cls: 'Tomato-tl-nav' });
-        nav.createEl('button', { text: '◀', cls: 'Tomato-tl-nav-btn' }, btn => {
-            btn.addEventListener('click', () => {
-                const d = new Date(this.timelineDate + 'T00:00:00');
-                d.setDate(d.getDate() - 1);
-                this.timelineDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                void this.refreshTabContent();
-            });
-        });
-        nav.createSpan({ cls: 'Tomato-tl-date', text: this.timelineDate });
-        nav.createEl('button', { text: '▶', cls: 'Tomato-tl-nav-btn' }, btn => {
-            btn.addEventListener('click', () => {
-                const d = new Date(this.timelineDate + 'T00:00:00');
-                d.setDate(d.getDate() + 1);
-                this.timelineDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                void this.refreshTabContent();
-            });
-        });
-        nav.createEl('button', { text: this.plugin.t('panel.timeline.today'), cls: 'Tomato-tl-nav-btn' }, btn => {
-            btn.addEventListener('click', () => {
-                this.timelineDate = todayString();
-                void this.refreshTabContent();
-            });
-        });
+    // ========== CALENDAR VIEW ==========
 
-        const day = await parseDayFile(this.app, this.plugin.settings, this.timelineDate);
+    private renderProjectBar(entries: WeekEntry[], container: HTMLElement): void {
+        const projectTotals = new Map<string, number>();
+        let totalDuration = 0;
+        for (const entry of entries) {
+            const key = entry.project || this.plugin.t('panel.stats.noProject');
+            projectTotals.set(key, (projectTotals.get(key) || 0) + entry.duration);
+            totalDuration += entry.duration;
+        }
+        if (totalDuration > 0) {
+            const barWrap = container.createDiv({ cls: 'Tomato-cal-project-bar' });
+            for (const [project, duration] of projectTotals) {
+                const pct = (duration / totalDuration) * 100;
+                const seg = barWrap.createDiv({ cls: 'Tomato-cal-project-seg' });
+                seg.style.width = `${pct}%`;
+                seg.style.backgroundColor = projectColor(this.plugin, project);
+                seg.setAttribute('aria-label', `${project}: ${minutesToHM(duration)}`);
+            }
+        }
+    }
 
-        // Track
-        const trackWrap = el.createDiv({ cls: 'Tomato-tl-track-wrap' });
-        // Hour labels (every 4h)
-        const hourLabels = trackWrap.createDiv({ cls: 'Tomato-tl-hours' });
-        for (let h = 0; h <= 24; h += 4) {
-            const left = (h / 24) * 100;
-            const label = hourLabels.createDiv({ cls: 'Tomato-tl-hour-label' });
-            label.style.left = `${left}%`;
+    private buildCalendarGrid(wrap: HTMLElement, days: string[]): { grid: HTMLElement; ruler: HTMLElement } {
+        let grid: HTMLElement;
+        let ruler: HTMLElement;
+
+        if (this.calendarView === 'month') {
+            grid = wrap.createDiv({ cls: 'Tomato-cal-grid' });
+            grid.style.gridTemplateColumns = `44px repeat(${days.length}, minmax(30px, 1fr))`;
+            grid.style.gridTemplateRows = '32px 1fr';
+
+            const rulerPlaceholder = grid.createDiv({ cls: 'Tomato-cal-ruler-placeholder' });
+            rulerPlaceholder.style.borderBottom = '1px solid var(--background-modifier-border)';
+            for (let i = 0; i < days.length; i++) {
+                const date = days[i];
+                const header = grid.createDiv({ cls: 'Tomato-cal-col-header' });
+                if (i === 0) header.addClass('first-col');
+                header.style.borderBottom = '1px solid var(--background-modifier-border)';
+                header.createDiv({ cls: 'Tomato-cal-col-daynum', text: String(new Date(date + 'T00:00:00').getDate()) });
+            }
+
+            ruler = grid.createDiv({ cls: 'Tomato-cal-ruler Tomato-cal-ruler-month' });
+        } else {
+            const headerRow = wrap.createDiv({ cls: 'Tomato-cal-header-row' });
+            headerRow.style.gridTemplateColumns = `44px repeat(${days.length}, minmax(20px, 1fr))`;
+
+            headerRow.createDiv({ cls: 'Tomato-cal-ruler-placeholder' });
+            for (let i = 0; i < days.length; i++) {
+                const date = days[i];
+                const header = headerRow.createDiv({ cls: 'Tomato-cal-col-header' });
+                if (i === 0) header.addClass('first-col');
+                const isToday = date === todayString();
+                header.toggleClass('today', isToday);
+                header.createDiv({ cls: 'Tomato-cal-col-daynum', text: String(new Date(date + 'T00:00:00').getDate()) });
+                header.createDiv({ cls: 'Tomato-cal-col-dayname', text: dayNameShort(date, this.lang) });
+            }
+
+            grid = wrap.createDiv({ cls: 'Tomato-cal-grid' });
+            grid.style.gridTemplateColumns = `44px repeat(${days.length}, minmax(20px, 1fr))`;
+
+            ruler = grid.createDiv({ cls: 'Tomato-cal-ruler' });
+        }
+
+        for (let h = 0; h <= 24; h += 2) {
+            const label = ruler.createDiv({ cls: 'Tomato-cal-ruler-label' });
+            label.style.top = `${(h / 24) * 100}%`;
             label.setText(`${String(h).padStart(2, '0')}:00`);
         }
 
-        const track = trackWrap.createDiv({ cls: 'Tomato-tl-track' });
-        for (const entry of day.entries) {
-            const startMin = timeToMinutes(entry.startTime);
-            const left = (startMin / 1440) * 100;
-            const width = (entry.duration / 1440) * 100;
-            const bar = track.createDiv({ cls: 'Tomato-tl-bar' });
-            bar.style.left = `${left}%`;
-            bar.style.width = `${Math.max(width, 0.3)}%`;
-            bar.style.backgroundColor = projectColor(this.plugin, entry.project);
-            bar.setAttribute('title', `${entry.startTime} ~ ${entry.endTime} (${entry.duration}m) ${entry.project ?? ''} ${entry.rest}`);
-        }
-
-        // Legend
-        if (this.plugin.settings.projects.length > 0) {
-            const legend = el.createDiv({ cls: 'Tomato-tl-legend' });
-            for (const proj of this.plugin.settings.projects) {
-                const item = legend.createDiv({ cls: 'Tomato-tl-legend-item' });
-                item.createDiv({ cls: 'Tomato-tl-legend-dot' }).style.backgroundColor = proj.color;
-                item.createSpan({ text: proj.name });
+        if (this.calendarView !== 'month') {
+            const today = todayString();
+            if (days.includes(today)) {
+                const now = new Date();
+                const currentMin = now.getHours() * 60 + now.getMinutes();
+                this.currentLineEl = grid.createDiv({ cls: 'Tomato-cal-current-line' });
+                this.currentLineEl.style.top = `${(currentMin / 1440) * 100}%`;
+                this.currentLineLabel = ruler.createDiv({ cls: 'Tomato-cal-current-label' });
+                this.currentLineLabel.style.top = `${(currentMin / 1440) * 100}%`;
+                this.currentLineLabel.style.left = '2px';
+                this.currentLineLabel.setText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
             }
         }
 
-        // Summary
-        const totalMin = day.entries.reduce((s, e) => s + e.duration, 0);
-        const pomos = day.entries.filter(e => e.mode === 'pomodoro').length;
-        el.createDiv({
-            cls: 'Tomato-tl-summary',
-            text: this.plugin.tf('panel.timeline.total', { duration: minutesToHM(totalMin), n: String(pomos) }),
+        return { grid, ruler };
+    }
+
+    private renderCalendar(entries: WeekEntry[], days: string[]): void {
+        const el = this.tabContentEl;
+        el.empty();
+        this.renderProjectBar(entries, el);
+        const wrap = el.createDiv({ cls: 'Tomato-cal-wrap' });
+        const { grid, ruler } = this.buildCalendarGrid(wrap, days);
+
+        // Day columns
+        for (let i = 0; i < days.length; i++) {
+            const date = days[i];
+            const col = grid.createDiv({ cls: 'Tomato-cal-col' });
+            if (i === 0) col.addClass('first-col');
+            col.setAttribute('data-date', date);
+
+            for (let h = 1; h < 24; h++) {
+                const line = col.createDiv({ cls: 'Tomato-cal-hline' });
+                line.style.top = `${(h / 24) * 100}%`;
+            }
+
+            const dayEntries = entries
+                .filter(e => e.date === date)
+                .map(e => ({ entry: e, index: e.originalIndex }))
+                .sort((a, b) => timeToMinutes(a.entry.startTime) - timeToMinutes(b.entry.startTime));
+
+            const positioned = this.positionEntries(dayEntries);
+
+            for (const pe of positioned) {
+                const bar = col.createDiv({ cls: 'Tomato-cal-bar' });
+                const startMin = timeToMinutes(pe.entry.startTime);
+                const top = (startMin / 1440) * 100;
+                const height = (pe.entry.duration / 1440) * 100;
+                bar.style.top = `${top}%`;
+                bar.style.height = `${Math.max(height, 0.5)}%`;
+                bar.style.left = `${pe.left}%`;
+                bar.style.width = `${pe.width}%`;
+                bar.style.backgroundColor = projectColor(this.plugin, pe.entry.project);
+
+                const title = pe.entry.project || pe.entry.taskName || '';
+                if (title) {
+                    bar.createDiv({ cls: 'Tomato-cal-bar-title', text: title });
+                }
+                if (pe.entry.duration >= 15) {
+                    bar.createDiv({ cls: 'Tomato-cal-bar-time', text: `${pe.entry.startTime} ~ ${pe.entry.endTime}` });
+                }
+
+                bar.addEventListener('contextmenu', (evt) => {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                    this.editEntryDialog(date, pe.index, pe.entry);
+                });
+
+                if (this.calendarView !== 'month') {
+                    // Move handle (middle)
+                    bar.addEventListener('mousedown', (evt) => {
+                        if (evt.button !== 0) return;
+                        const target = evt.target as HTMLElement;
+                        if (target.hasClass('Tomato-cal-bar-resize-handle')) return;
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const startY = evt.clientY;
+                        const originalTop = bar.offsetTop;
+                        const colEl = col;
+                        const snapMin = this.plugin.settings.calendarSnapMinutes || 5;
+
+                        let dragLabel = bar.querySelector('.Tomato-cal-bar-dragtime') as HTMLElement | null;
+                        if (!dragLabel) {
+                            dragLabel = bar.createDiv({ cls: 'Tomato-cal-bar-dragtime' });
+                        }
+                        dragLabel.style.display = 'block';
+                        bar.addClass('Tomato-cal-bar-dragging');
+                        document.body.style.cursor = 'grabbing';
+
+                        const snapTop = (rawTop: number): { top: number; timeStr: string } => {
+                            const centerY = rawTop + bar.clientHeight / 2;
+                            const ratio = Math.max(0, Math.min(1, centerY / colEl.clientHeight));
+                            const minute = Math.round(ratio * 1440);
+                            const snappedMinute = Math.max(0, Math.min(1440, Math.round(minute / snapMin) * snapMin));
+                            const snappedRatio = snappedMinute / 1440;
+                            const snappedTop = snappedRatio * colEl.clientHeight - bar.clientHeight / 2;
+                            const clampedTop = Math.max(0, Math.min(colEl.clientHeight - bar.clientHeight, snappedTop));
+                            const h = Math.floor(snappedMinute / 60) % 24;
+                            const m = snappedMinute % 60;
+                            const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                            return { top: clampedTop, timeStr };
+                        };
+
+                        const onMove = (e: MouseEvent) => {
+                            const dy = e.clientY - startY;
+                            const rawTop = originalTop + dy;
+                            const { top, timeStr } = snapTop(rawTop);
+                            bar.style.top = `${top}px`;
+                            dragLabel!.setText(timeStr);
+                        };
+
+                        const onUp = async (e: MouseEvent) => {
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+                            bar.removeClass('Tomato-cal-bar-dragging');
+                            document.body.style.cursor = '';
+                            if (dragLabel) dragLabel.style.display = 'none';
+
+                            const rect = colEl.getBoundingClientRect();
+                            const y = bar.getBoundingClientRect().top - rect.top;
+                            const ratio = Math.max(0, Math.min(1, y / rect.height));
+                            const minute = Math.round(ratio * 1440);
+                            const snappedMinute = Math.max(0, Math.min(1440, Math.round(minute / snapMin) * snapMin));
+                            const h = Math.floor(snappedMinute / 60) % 24;
+                            const m = snappedMinute % 60;
+                            const newStart = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                            const newEndMin = snappedMinute + pe.entry.duration;
+                            const eh = Math.floor(newEndMin / 60) % 24;
+                            const em = newEndMin % 60;
+                            const newEnd = `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`;
+                            await this.doEditEntry(date, pe.index, { startTime: newStart, endTime: newEnd });
+                        };
+
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
+                    });
+
+                    // Resize handles
+                    const resizeTop = bar.createDiv({ cls: 'Tomato-cal-bar-resize-handle Tomato-cal-bar-resize-top' });
+                    const resizeBottom = bar.createDiv({ cls: 'Tomato-cal-bar-resize-handle Tomato-cal-bar-resize-bottom' });
+
+                    // Top resize: adjust start time (duration changes, end time stays)
+                    resizeTop.addEventListener('mousedown', (evt) => {
+                        if (evt.button !== 0) return;
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const startY = evt.clientY;
+                        const originalTop = bar.offsetTop;
+                        const originalHeight = bar.clientHeight;
+                        const originalEndMin = timeToMinutes(pe.entry.endTime);
+                        const colEl = col;
+                        const snapMin = this.plugin.settings.calendarSnapMinutes || 5;
+
+                        bar.addClass('Tomato-cal-bar-dragging');
+                        document.body.style.cursor = 'ns-resize';
+
+                        let dragLabel = bar.querySelector('.Tomato-cal-bar-dragtime') as HTMLElement | null;
+                        if (!dragLabel) {
+                            dragLabel = bar.createDiv({ cls: 'Tomato-cal-bar-dragtime' });
+                        }
+                        dragLabel.style.display = 'block';
+
+                        const onMove = (e: MouseEvent) => {
+                            const dy = e.clientY - startY;
+                            const newTop = originalTop + dy;
+                            const newHeight = Math.max(4, originalHeight - dy);
+                            bar.style.top = `${Math.max(0, newTop)}px`;
+                            bar.style.height = `${newHeight}px`;
+                            const ratio = Math.max(0, Math.min(1, newTop / colEl.clientHeight));
+                            const minute = Math.round(ratio * 1440);
+                            const snappedMinute = Math.max(0, Math.min(originalEndMin - snapMin, Math.round(minute / snapMin) * snapMin));
+                            const h = Math.floor(snappedMinute / 60) % 24;
+                            const m = snappedMinute % 60;
+                            dragLabel!.setText(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+                        };
+
+                        const onUp = async (e: MouseEvent) => {
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+                            bar.removeClass('Tomato-cal-bar-dragging');
+                            document.body.style.cursor = '';
+                            if (dragLabel) dragLabel.style.display = 'none';
+
+                            const rect = colEl.getBoundingClientRect();
+                            const y = bar.getBoundingClientRect().top - rect.top;
+                            const ratio = Math.max(0, Math.min(1, y / rect.height));
+                            const minute = Math.round(ratio * 1440);
+                            const snappedMinute = Math.max(0, Math.min(originalEndMin - snapMin, Math.round(minute / snapMin) * snapMin));
+                            const h = Math.floor(snappedMinute / 60) % 24;
+                            const m = snappedMinute % 60;
+                            const newStart = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                            const newDuration = originalEndMin - snappedMinute;
+                            await this.doEditEntry(date, pe.index, { startTime: newStart, duration: newDuration });
+                        };
+
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
+                    });
+
+                    // Bottom resize: adjust end time (duration changes, start time stays)
+                    resizeBottom.addEventListener('mousedown', (evt) => {
+                        if (evt.button !== 0) return;
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const startY = evt.clientY;
+                        const originalHeight = bar.clientHeight;
+                        const originalStartMin = timeToMinutes(pe.entry.startTime);
+                        const colEl = col;
+                        const snapMin = this.plugin.settings.calendarSnapMinutes || 5;
+
+                        bar.addClass('Tomato-cal-bar-dragging');
+                        document.body.style.cursor = 'ns-resize';
+
+                        let dragLabel = bar.querySelector('.Tomato-cal-bar-dragtime') as HTMLElement | null;
+                        if (!dragLabel) {
+                            dragLabel = bar.createDiv({ cls: 'Tomato-cal-bar-dragtime' });
+                        }
+                        dragLabel.style.display = 'block';
+
+                        const onMove = (e: MouseEvent) => {
+                            const dy = e.clientY - startY;
+                            const newHeight = Math.max(4, originalHeight + dy);
+                            bar.style.height = `${newHeight}px`;
+                            const bottomY = bar.offsetTop + newHeight;
+                            const ratio = Math.max(0, Math.min(1, bottomY / colEl.clientHeight));
+                            const minute = Math.round(ratio * 1440);
+                            const snappedMinute = Math.max(originalStartMin + snapMin, Math.round(minute / snapMin) * snapMin);
+                            const h = Math.floor(snappedMinute / 60) % 24;
+                            const m = snappedMinute % 60;
+                            dragLabel!.setText(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+                        };
+
+                        const onUp = async (e: MouseEvent) => {
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+                            bar.removeClass('Tomato-cal-bar-dragging');
+                            document.body.style.cursor = '';
+                            if (dragLabel) dragLabel.style.display = 'none';
+
+                            const rect = colEl.getBoundingClientRect();
+                            const bottomY = bar.getBoundingClientRect().bottom - rect.top;
+                            const ratio = Math.max(0, Math.min(1, bottomY / rect.height));
+                            const minute = Math.round(ratio * 1440);
+                            const snappedMinute = Math.max(originalStartMin + snapMin, Math.round(minute / snapMin) * snapMin);
+                            const h = Math.floor(snappedMinute / 60) % 24;
+                            const m = snappedMinute % 60;
+                            const newEnd = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                            const newDuration = snappedMinute - originalStartMin;
+                            await this.doEditEntry(date, pe.index, { endTime: newEnd, duration: newDuration });
+                        };
+
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
+                    });
+                }
+            }
+
+            if (this.calendarView !== 'month') {
+                this.renderOngoingBar(col, date);
+            }
+
+            col.addEventListener('click', (evt) => {
+                if (evt.target !== col && !(evt.target as HTMLElement).hasClass('Tomato-cal-hline')) return;
+                const rect = col.getBoundingClientRect();
+                const y = (evt as MouseEvent).clientY - rect.top;
+                const ratio = Math.max(0, Math.min(1, y / rect.height));
+                const minute = Math.round(ratio * 1440);
+                const h = Math.floor(minute / 60);
+                const m = minute % 60;
+                const startTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                this.showAddEntryDialog(date, startTime);
+            });
+        }
+    }
+
+    private renderOngoingBar(col: HTMLElement, date: string): void {
+        if (!this.plugin.timer.getState().isRunning || date !== this.plugin.timer.getSessionStartDate()) return;
+
+        const sessionTime = this.plugin.timer.getSessionStartTime();
+        const startMin = timeToMinutes(sessionTime);
+        const now = new Date();
+        const currentMin = now.getHours() * 60 + now.getMinutes();
+        let duration: number;
+        if (currentMin >= startMin) {
+            duration = currentMin - startMin;
+        } else {
+            duration = (1440 - startMin) + currentMin;
+        }
+        const top = (startMin / 1440) * 100;
+        const height = (duration / 1440) * 100;
+        this.ongoingBarEl = col.createDiv({ cls: 'Tomato-cal-bar Tomato-cal-bar-ongoing' });
+        this.ongoingBarEl.style.top = `${top}%`;
+        this.ongoingBarEl.style.height = `${Math.max(height, 0.5)}%`;
+        this.ongoingBarEl.style.left = '0%';
+        this.ongoingBarEl.style.width = '100%';
+        this.ongoingBarEl.style.backgroundColor = projectColor(this.plugin, this.plugin.timer.getCurrentProject());
+        const title = this.plugin.timer.getTaskName() || this.plugin.timer.getCurrentProject() || this.plugin.t('panel.timer.running');
+        this.ongoingBarEl.createDiv({ cls: 'Tomato-cal-bar-title', text: title });
+        this.ongoingBarLabel = this.ongoingBarEl.createDiv({ cls: 'Tomato-cal-bar-time', text: minutesToHM(duration) });
+
+        // Top resize: adjust start time
+        const resizeTop = this.ongoingBarEl.createDiv({ cls: 'Tomato-cal-bar-resize-handle Tomato-cal-bar-resize-top' });
+        resizeTop.addEventListener('mousedown', (evt) => {
+            if (evt.button !== 0) return;
+            evt.preventDefault();
+            evt.stopPropagation();
+            const startY = evt.clientY;
+            const originalTop = this.ongoingBarEl!.offsetTop;
+            const originalStartMin = startMin;
+            const colEl = col;
+            const snapMin = this.plugin.settings.calendarSnapMinutes || 5;
+            this.isDraggingOngoing = true;
+            this.ongoingBarEl!.addClass('Tomato-cal-bar-dragging');
+            document.body.style.cursor = 'ns-resize';
+
+            let dragLabel = this.ongoingBarEl!.querySelector('.Tomato-cal-bar-dragtime') as HTMLElement | null;
+            if (!dragLabel) {
+                dragLabel = this.ongoingBarEl!.createDiv({ cls: 'Tomato-cal-bar-dragtime' });
+            }
+            dragLabel.style.display = 'block';
+
+            const onMove = (e: MouseEvent) => {
+                const dy = e.clientY - startY;
+                const newTop = Math.max(0, originalTop + dy);
+                this.ongoingBarEl!.style.top = `${newTop}px`;
+                const ratio = Math.max(0, Math.min(1, newTop / colEl.clientHeight));
+                const minute = Math.round(ratio * 1440);
+                const snappedMinute = Math.max(0, Math.min(currentMin - snapMin, Math.round(minute / snapMin) * snapMin));
+                const h = Math.floor(snappedMinute / 60) % 24;
+                const m = snappedMinute % 60;
+                dragLabel!.setText(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+            };
+
+            const onUp = async (e: MouseEvent) => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                this.ongoingBarEl!.removeClass('Tomato-cal-bar-dragging');
+                document.body.style.cursor = '';
+                if (dragLabel) dragLabel.style.display = 'none';
+                this.isDraggingOngoing = false;
+
+                const rect = colEl.getBoundingClientRect();
+                const y = this.ongoingBarEl!.getBoundingClientRect().top - rect.top;
+                const ratio = Math.max(0, Math.min(1, y / rect.height));
+                const minute = Math.round(ratio * 1440);
+                const snappedMinute = Math.max(0, Math.min(currentMin - snapMin, Math.round(minute / snapMin) * snapMin));
+                const deltaMin = snappedMinute - originalStartMin;
+                if (deltaMin !== 0) {
+                    this.plugin.timer.adjustSessionStart(deltaMin);
+                    await this.refreshTabContent();
+                }
+            };
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+
+        // Drag block: adjust start time (duration changes because end = now)
+        this.ongoingBarEl.addEventListener('mousedown', (evt) => {
+            if (evt.button !== 0) return;
+            if ((evt.target as HTMLElement).hasClass('Tomato-cal-bar-resize-handle')) return;
+            evt.preventDefault();
+            const startY = evt.clientY;
+            const originalTop = this.ongoingBarEl!.offsetTop;
+            const originalStartMin = startMin;
+            const colEl = col;
+            const snapMin = this.plugin.settings.calendarSnapMinutes || 5;
+            this.isDraggingOngoing = true;
+            this.ongoingBarEl!.addClass('Tomato-cal-bar-dragging');
+            document.body.style.cursor = 'grabbing';
+
+            let dragLabel = this.ongoingBarEl!.querySelector('.Tomato-cal-bar-dragtime') as HTMLElement | null;
+            if (!dragLabel) {
+                dragLabel = this.ongoingBarEl!.createDiv({ cls: 'Tomato-cal-bar-dragtime' });
+            }
+            dragLabel.style.display = 'block';
+
+            const onMove = (e: MouseEvent) => {
+                const dy = e.clientY - startY;
+                const newTop = Math.max(0, originalTop + dy);
+                this.ongoingBarEl!.style.top = `${newTop}px`;
+                const ratio = Math.max(0, Math.min(1, newTop / colEl.clientHeight));
+                const minute = Math.round(ratio * 1440);
+                const snappedMinute = Math.max(0, Math.min(currentMin - snapMin, Math.round(minute / snapMin) * snapMin));
+                const h = Math.floor(snappedMinute / 60) % 24;
+                const m = snappedMinute % 60;
+                dragLabel!.setText(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+            };
+
+            const onUp = async (e: MouseEvent) => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                this.ongoingBarEl!.removeClass('Tomato-cal-bar-dragging');
+                document.body.style.cursor = '';
+                if (dragLabel) dragLabel.style.display = 'none';
+                this.isDraggingOngoing = false;
+
+                const rect = colEl.getBoundingClientRect();
+                const y = this.ongoingBarEl!.getBoundingClientRect().top - rect.top;
+                const ratio = Math.max(0, Math.min(1, y / rect.height));
+                const minute = Math.round(ratio * 1440);
+                const snappedMinute = Math.max(0, Math.min(currentMin - snapMin, Math.round(minute / snapMin) * snapMin));
+                const deltaMin = snappedMinute - originalStartMin;
+                if (deltaMin !== 0) {
+                    this.plugin.timer.adjustSessionStart(deltaMin);
+                    await this.refreshTabContent();
+                }
+            };
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
         });
     }
 
-    // ===== Stats =====
-    async renderStats(): Promise<void> {
-        const el = this.tabContentEl;
+    private updateCurrentTimeLine(): void {
+        const n = new Date();
+        const min = n.getHours() * 60 + n.getMinutes();
+        if (this.currentLineEl?.isConnected) {
+            this.currentLineEl.style.top = `${(min / 1440) * 100}%`;
+        }
+        if (this.currentLineLabel?.isConnected) {
+            this.currentLineLabel.style.top = `${(min / 1440) * 100}%`;
+            this.currentLineLabel.setText(`${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`);
+        }
+        if (this.ongoingBarEl?.isConnected && this.plugin.timer.getState().isRunning && !this.isDraggingOngoing) {
+            const startMin = timeToMinutes(this.plugin.timer.getSessionStartTime());
+            let duration: number;
+            if (min >= startMin) {
+                duration = min - startMin;
+            } else {
+                duration = (1440 - startMin) + min;
+            }
+            const top = (startMin / 1440) * 100;
+            const height = (duration / 1440) * 100;
+            this.ongoingBarEl.style.top = `${top}%`;
+            this.ongoingBarEl.style.height = `${Math.max(height, 0.5)}%`;
+            this.ongoingBarLabel?.setText(minutesToHM(duration));
+        }
+    }
 
-        // Period switcher
-        const periodBar = el.createDiv({ cls: 'Tomato-stats-periods' });
-        const periods: { key: StatsPeriod; labelKey: string }[] = [
-            { key: 'day', labelKey: 'panel.stats.period.day' },
-            { key: 'week', labelKey: 'panel.stats.period.week' },
-            { key: 'month', labelKey: 'panel.stats.period.month' },
-            { key: 'year', labelKey: 'panel.stats.period.year' },
-        ];
-        for (const p of periods) {
-            periodBar.createEl('button', {
-                cls: 'Tomato-stats-period-btn' + (this.statsPeriod === p.key ? ' active' : ''),
-                text: this.plugin.t(p.labelKey),
-            }, btn => {
-                btn.addEventListener('click', () => {
-                    this.statsPeriod = p.key;
-                    void this.refreshTabContent();
+    private positionEntries(dayEntries: { entry: ParsedEntry; index: number }[]): PositionedEntry[] {
+        const result: PositionedEntry[] = [];
+        for (let i = 0; i < dayEntries.length; i++) {
+            const { entry, index } = dayEntries[i];
+            const start = timeToMinutes(entry.startTime);
+            const end = start + entry.duration;
+
+            const overlaps: number[] = [i];
+            for (let j = 0; j < dayEntries.length; j++) {
+                if (i === j) continue;
+                const oStart = timeToMinutes(dayEntries[j].entry.startTime);
+                const oEnd = oStart + dayEntries[j].entry.duration;
+                if (start < oEnd && end > oStart) {
+                    overlaps.push(j);
+                }
+            }
+
+            overlaps.sort((a, b) => a - b);
+            const pos = overlaps.indexOf(i);
+            const count = overlaps.length;
+            const gap = count > 1 ? 1 : 0;
+
+            result.push({
+                entry,
+                index,
+                left: (pos / count) * 100,
+                width: (100 / count) - gap,
+            });
+        }
+        return result;
+    }
+
+    // ========== LIST VIEW ==========
+
+    private renderList(entries: WeekEntry[]): void {
+        const el = this.tabContentEl;
+        el.empty();
+
+        const days = weekDays(this.navDate);
+        const total = entries.reduce((s, e) => s + e.duration, 0);
+        const totalEl = el.createDiv({ cls: 'Tomato-list-total' });
+        totalEl.setText(`${this.plugin.t('panel.week.total')} ${minutesToHM(total)}`);
+
+        for (const date of days.slice().reverse()) {
+            const dayEntries = entries.filter(e => e.date === date);
+            if (dayEntries.length === 0) continue;
+
+            const section = el.createDiv({ cls: 'Tomato-list-day' });
+            const header = section.createDiv({ cls: 'Tomato-list-day-header' });
+            const isToday = date === todayString();
+            header.toggleClass('today', isToday);
+            header.createSpan({ text: `${dayNameShort(date, this.lang)} ${formatDateShort(date)}` });
+
+            const dayTotal = dayEntries.reduce((s, e) => s + e.duration, 0);
+            header.createSpan({ cls: 'Tomato-list-day-total', text: minutesToHM(dayTotal) });
+
+            for (const entry of dayEntries.slice().reverse()) {
+                const row = section.createDiv({ cls: 'Tomato-list-row' });
+                row.addEventListener('contextmenu', (evt) => {
+                    evt.preventDefault();
+                    this.editEntryDialog(date, entry.originalIndex, entry);
                 });
-            });
-        }
 
-        // Export button for week/month/year
-        if (this.statsPeriod !== 'day') {
-            const exportBar = el.createDiv({ cls: 'Tomato-stats-export' });
-            const periodLabel = this.plugin.t(`panel.stats.period.${this.statsPeriod}` as `panel.stats.period.${StatsPeriod}`);
-            exportBar.createEl('button', {
-                cls: 'Tomato-btn Tomato-btn-secondary',
-                text: this.plugin.tf('panel.stats.export', { period: periodLabel }),
-            }, btn => {
-                btn.addEventListener('click', () => void this.generateReport(this.statsPeriod));
-            });
-        }
-
-        const today = todayString();
-        let start = today;
-        let end = today;
-        let dayLabels: string[] = [];
-
-        if (this.statsPeriod === 'day') {
-            start = today; end = today; dayLabels = [today];
-        } else if (this.statsPeriod === 'week') {
-            start = startOfWeek(today);
-            end = today;
-            dayLabels = dateRangeDays(end, Math.min(7, Math.ceil((new Date(end + 'T00:00:00').getTime() - new Date(start + 'T00:00:00').getTime()) / 86400000) + 1));
-        } else if (this.statsPeriod === 'month') {
-            start = startOfMonth(today);
-            end = today;
-            dayLabels = dateRangeDays(end, Math.min(31, Math.ceil((new Date(end + 'T00:00:00').getTime() - new Date(start + 'T00:00:00').getTime()) / 86400000) + 1));
-        } else if (this.statsPeriod === 'year') {
-            start = startOfYear(today);
-            end = today;
-            // For year view, show monthly bars instead of daily
-            dayLabels = [];
-        }
-
-        const entries = await readEntriesInRange(this.app, this.plugin.settings, start, end);
-        const totalMin = entries.reduce((s, e) => s + e.duration, 0);
-        const pomoCount = entries.filter(e => e.mode === 'pomodoro').length;
-
-        // Summary cards
-        const cards = el.createDiv({ cls: 'Tomato-stats-cards' });
-        cards.createDiv({ cls: 'Tomato-stats-card', text: this.plugin.tf('panel.stats.totalDuration', { duration: minutesToHM(totalMin) }) });
-        cards.createDiv({ cls: 'Tomato-stats-card', text: this.plugin.tf('panel.stats.tomatos', { n: String(pomoCount) }) });
-
-        // Project distribution
-        const projMap = new Map<string, number>();
-        for (const e of entries) {
-            const key = e.project ?? this.plugin.t('panel.stats.noProject');
-            projMap.set(key, (projMap.get(key) ?? 0) + e.duration);
-        }
-        if (projMap.size > 0) {
-            const projEl = el.createDiv({ cls: 'Tomato-stats-section' });
-            projEl.createDiv({ cls: 'Tomato-stats-heading', text: this.plugin.t('panel.stats.projectDist') });
-            const distBar = projEl.createDiv({ cls: 'Tomato-stats-dist' });
-            const noProjectLabel = this.plugin.t('panel.stats.noProject');
-            for (const [name, min] of projMap) {
-                const pct = totalMin > 0 ? (min / totalMin) * 100 : 0;
-                const row = distBar.createDiv({ cls: 'Tomato-stats-dist-row' });
-                row.createSpan({ cls: 'Tomato-stats-dist-name', text: name });
-                const barWrap = row.createDiv({ cls: 'Tomato-stats-dist-bar-wrap' });
-                const bar = barWrap.createDiv({ cls: 'Tomato-stats-dist-bar' });
-                bar.style.width = `${pct}%`;
-                bar.style.backgroundColor = projectColor(this.plugin, name === noProjectLabel ? undefined : name);
-                row.createSpan({ cls: 'Tomato-stats-dist-val', text: minutesToHM(min) });
-            }
-        }
-
-        // Daily / monthly trend bars
-        if (this.statsPeriod !== 'year') {
-            const trendEl = el.createDiv({ cls: 'Tomato-stats-section' });
-            trendEl.createDiv({ cls: 'Tomato-stats-heading', text: this.plugin.t('panel.stats.trend') });
-            const chart = trendEl.createDiv({ cls: 'Tomato-stats-chart' });
-            const dayMap = new Map<string, number>();
-            for (const e of entries) {
-                dayMap.set(e.date, (dayMap.get(e.date) ?? 0) + e.duration);
-            }
-            const maxMin = Math.max(...dayMap.values(), 1);
-            for (const d of dayLabels) {
-                const min = dayMap.get(d) ?? 0;
-                const col = chart.createDiv({ cls: 'Tomato-stats-chart-col' });
-                if (min > 0) {
-                    col.createDiv({ cls: 'Tomato-stats-chart-val', text: String(min) });
-                }
-                const fill = col.createDiv({ cls: 'Tomato-stats-chart-fill' + (d === today ? ' today' : '') });
-                fill.style.height = `${(min / maxMin) * 100}%`;
-                col.createDiv({ cls: 'Tomato-stats-chart-label', text: d.slice(5).replace('-', '/') });
-            }
-        } else {
-            // Year view: monthly bars
-            const trendEl = el.createDiv({ cls: 'Tomato-stats-section' });
-            trendEl.createDiv({ cls: 'Tomato-stats-heading', text: this.plugin.t('panel.stats.monthlyTrend') });
-            const chart = trendEl.createDiv({ cls: 'Tomato-stats-chart' });
-            const monthMap = new Map<number, number>();
-            for (const e of entries) {
-                const m = parseInt(e.date.slice(5, 7), 10);
-                monthMap.set(m, (monthMap.get(m) ?? 0) + e.duration);
-            }
-            const maxMin = Math.max(...monthMap.values(), 1);
-            for (let m = 1; m <= 12; m++) {
-                const min = monthMap.get(m) ?? 0;
-                const col = chart.createDiv({ cls: 'Tomato-stats-chart-col' });
-                if (min > 0) {
-                    col.createDiv({ cls: 'Tomato-stats-chart-val', text: String(min) });
-                }
-                const fill = col.createDiv({ cls: 'Tomato-stats-chart-fill' + (m === new Date().getMonth() + 1 ? ' today' : '') });
-                fill.style.height = `${(min / maxMin) * 100}%`;
-                col.createDiv({ cls: 'Tomato-stats-chart-label', text: `${m}月` });
-            }
-        }
-    }
-
-    // ===== History List =====
-    async renderHistory(): Promise<void> {
-        const el = this.tabContentEl;
-        const todayStr = todayString();
-        const day = await parseDayFile(this.app, this.plugin.settings, todayStr);
-
-        const todaySection = el.createDiv({ cls: 'Tomato-history-section' });
-        const todayHeader = todaySection.createDiv({ cls: 'Tomato-history-heading' });
-        const todayCount = day.entries.filter(e => e.mode === 'pomodoro').length;
-        const todayMinutes = day.entries.reduce((s, e) => s + e.duration, 0);
-        todayHeader.createSpan({ text: this.plugin.t('panel.history.today') });
-        const summary = todayCount > 0
-            ? `${todayCount} 🍅 · ${minutesToHM(todayMinutes)}`
-            : this.plugin.t('panel.history.noTomatos');
-        todayHeader.createSpan({ cls: 'Tomato-today-summary', text: summary });
-
-        if (day.entries.length > 0) {
-            const list = todaySection.createDiv({ cls: 'Tomato-today-list' });
-            for (const entry of day.entries) {
-                const item = list.createDiv({ cls: 'Tomato-today-item' });
-                const dot = item.createDiv({ cls: 'Tomato-entry-dot' });
+                const dot = row.createDiv({ cls: 'Tomato-list-dot' });
                 dot.style.backgroundColor = projectColor(this.plugin, entry.project);
-                item.createSpan({ cls: 'Tomato-entry-time', text: `${entry.startTime} ~ ${entry.endTime}` });
-                if (entry.rest) {
-                    const noteEl = item.createSpan({ cls: 'Tomato-entry-note' });
-                    await MarkdownRenderer.render(this.app, entry.rest, noteEl, '', this);
-                }
+
+                const meta = row.createDiv({ cls: 'Tomato-list-meta' });
+                const rawTask = (entry.taskName || '').replace(/^tomato_project[�?]\s*\S+\s*/, '').trim();
+                const taskName = rawTask || entry.project || this.plugin.t('panel.stats.noProject');
+                meta.createDiv({ cls: 'Tomato-list-task', text: taskName });
+                meta.createDiv({ cls: 'Tomato-list-time', text: `${entry.startTime} ~ ${entry.endTime}` });
+
+                row.createDiv({ cls: 'Tomato-list-duration', text: minutesToHM(entry.duration) });
             }
+        }
+
+        if (entries.length === 0) {
+            el.createDiv({ cls: 'Tomato-empty', text: this.plugin.t('panel.history.noTomatos') });
         }
     }
 
-    private fmtTime(s: number): string {
-        const m = Math.floor(s / 60);
-        const sec = s % 60;
-        return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    // ========== TIMESHEET VIEW ==========
+
+    private renderTimesheet(entries: WeekEntry[]): void {
+        const el = this.tabContentEl;
+        el.empty();
+
+        const days = weekDays(this.navDate);
+        const projects = Array.from(new Set(entries.map(e => e.project || this.plugin.t('panel.stats.noProject')))).sort();
+        const noProjectLabel = this.plugin.t('panel.stats.noProject');
+
+        const table = el.createDiv({ cls: 'Tomato-ts-table' });
+
+        // Header row
+        const headerRow = table.createDiv({ cls: 'Tomato-ts-row Tomato-ts-header' });
+        headerRow.createDiv({ cls: 'Tomato-ts-cell Tomato-ts-project', text: this.plugin.t('panel.entry.project') });
+        for (const date of days) {
+            const cell = headerRow.createDiv({ cls: 'Tomato-ts-cell' });
+            cell.createDiv({ text: dayNameShort(date, this.lang).toUpperCase() });
+            cell.createDiv({ cls: 'Tomato-ts-date', text: formatDateShort(date) });
+        }
+        headerRow.createDiv({ cls: 'Tomato-ts-cell Tomato-ts-total', text: this.plugin.t('panel.week.total') });
+
+        // Data rows
+        const dailyTotals = new Map<string, number>();
+        for (const date of days) dailyTotals.set(date, 0);
+
+        for (const proj of projects) {
+            const row = table.createDiv({ cls: 'Tomato-ts-row' });
+            const projCell = row.createDiv({ cls: 'Tomato-ts-cell Tomato-ts-project' });
+            const dot = projCell.createDiv({ cls: 'Tomato-ts-dot' });
+            dot.style.backgroundColor = projectColor(this.plugin, proj === noProjectLabel ? '' : proj);
+            projCell.createSpan({ text: proj });
+
+            let projTotal = 0;
+            for (const date of days) {
+                const mins = entries
+                    .filter(e => e.date === date && (e.project || noProjectLabel) === proj)
+                    .reduce((s, e) => s + e.duration, 0);
+                projTotal += mins;
+                dailyTotals.set(date, (dailyTotals.get(date) || 0) + mins);
+
+                const cell = row.createDiv({ cls: 'Tomato-ts-cell' });
+                if (mins > 0) {
+                    cell.setText(minutesToHM(mins));
+                }
+            }
+            row.createDiv({ cls: 'Tomato-ts-cell Tomato-ts-total', text: minutesToHM(projTotal) });
+        }
+
+        // Total row
+        const totalRow = table.createDiv({ cls: 'Tomato-ts-row Tomato-ts-total-row' });
+        totalRow.createDiv({ cls: 'Tomato-ts-cell Tomato-ts-project', text: this.plugin.t('panel.week.total') });
+        let grandTotal = 0;
+        for (const date of days) {
+            const t = dailyTotals.get(date) || 0;
+            grandTotal += t;
+            const cell = totalRow.createDiv({ cls: 'Tomato-ts-cell' });
+            if (t > 0) cell.setText(minutesToHM(t));
+        }
+        totalRow.createDiv({ cls: 'Tomato-ts-cell Tomato-ts-total', text: minutesToHM(grandTotal) });
+
+        if (entries.length === 0) {
+            el.createDiv({ cls: 'Tomato-empty', text: this.plugin.t('panel.history.noTomatos') });
+        }
     }
 
-    private phaseLabel(state: TimerState): string {
-        if (!state.isRunning && state.phase !== 'idle') return this.plugin.t('panel.status.paused');
-        const labels: Record<PhaseType, string> = {
-            work: this.plugin.t('panel.status.focus'),
-            shortBreak: this.plugin.t('panel.status.shortBreak'),
-            longBreak: this.plugin.t('panel.status.longBreak'),
-            idle: this.plugin.t('panel.status.ready'),
-            stopwatch: this.plugin.t('panel.status.stopwatch'),
-            countdown: this.plugin.t('panel.status.countdown'),
-        };
-        return labels[state.phase];
-    }
+    // ========== STATS VIEW (Pie Chart) ==========
 
-    private async generateReport(period: StatsPeriod): Promise<void> {
-        const today = todayString();
-        let start = today;
-        let end = today;
-        let title = '';
+    private renderStats(entries: WeekEntry[]): void {
+        const el = this.tabContentEl;
+        el.empty();
 
-        if (period === 'week') {
-            start = startOfWeek(today);
-            end = today;
-            title = this.plugin.tf('panel.report.weekTitle', { start, end });
-        } else if (period === 'month') {
-            start = startOfMonth(today);
-            end = today;
-            title = this.plugin.tf('panel.report.monthTitle', { month: today.slice(0, 7) });
-        } else if (period === 'year') {
-            start = startOfYear(today);
-            end = today;
-            title = this.plugin.tf('panel.report.yearTitle', { year: today.slice(0, 4) });
-        } else {
+        const total = entries.reduce((sum, e) => sum + e.duration, 0);
+        if (total === 0) {
+            el.createDiv({ cls: 'Tomato-empty', text: this.plugin.t('panel.history.noTomatos') });
             return;
         }
 
-        const entries = await readEntriesInRange(this.app, this.plugin.settings, start, end);
-        const totalMin = entries.reduce((s, e) => s + e.duration, 0);
-        const pomoCount = entries.filter(e => e.mode === 'pomodoro').length;
-
+        const noProjectLabel = this.plugin.t('panel.stats.noProject');
         const projMap = new Map<string, number>();
         for (const e of entries) {
-            const key = e.project ?? this.plugin.t('panel.stats.noProject');
-            projMap.set(key, (projMap.get(key) ?? 0) + e.duration);
+            const p = e.project || noProjectLabel;
+            projMap.set(p, (projMap.get(p) || 0) + e.duration);
         }
 
-        let md = `# ${title}\n\n`;
-        md += `**${this.plugin.t('panel.report.totalDuration')}**: ${minutesToHM(totalMin)}  \n`;
-        md += `**${this.plugin.t('panel.report.tomatoCount')}**: ${pomoCount}  \n\n`;
+        const projList = Array.from(projMap.entries()).sort((a, b) => b[1] - a[1]);
 
-        md += `## ${this.plugin.t('panel.report.projectDist')}\n\n`;
-        for (const [name, min] of projMap) {
-            const pct = totalMin > 0 ? ((min / totalMin) * 100).toFixed(1) : '0';
-            md += `- ${name}: ${minutesToHM(min)} (${pct}%)\n`;
+        // Pie chart SVG
+        const size = 200;
+        const radius = 80;
+        const cx = size / 2;
+        const cy = size / 2;
+        let currentAngle = -Math.PI / 2;
+
+        const chartWrap = el.createDiv({ cls: 'Tomato-stats-chart' });
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+        svg.addClass('Tomato-pie-svg');
+        chartWrap.appendChild(svg);
+
+        for (const [proj, mins] of projList) {
+            const sliceAngle = (mins / total) * 2 * Math.PI;
+            const x1 = cx + radius * Math.cos(currentAngle);
+            const y1 = cy + radius * Math.sin(currentAngle);
+            const x2 = cx + radius * Math.cos(currentAngle + sliceAngle);
+            const y2 = cy + radius * Math.sin(currentAngle + sliceAngle);
+            const largeArc = sliceAngle > Math.PI ? 1 : 0;
+
+            const d = `M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', d);
+            path.setAttribute('fill', projectColor(this.plugin, proj === noProjectLabel ? '' : proj));
+            path.setAttribute('stroke', 'var(--background-primary)');
+            path.setAttribute('stroke-width', '2');
+            path.setAttribute('title', `${proj}: ${minutesToHM(mins)}`);
+            path.addClass('Tomato-pie-slice');
+            svg.appendChild(path);
+
+            currentAngle += sliceAngle;
         }
-        md += `\n`;
 
-        if (period === 'year') {
-            md += `## ${this.plugin.t('panel.report.monthlyDetails')}\n\n`;
-            const monthMap = new Map<number, number>();
-            for (const e of entries) {
-                const m = parseInt(e.date.slice(5, 7), 10);
-                monthMap.set(m, (monthMap.get(m) ?? 0) + e.duration);
-            }
-            for (let m = 1; m <= 12; m++) {
-                const min = monthMap.get(m) ?? 0;
-                if (min > 0) {
-                    md += `- ${this.plugin.tf('panel.report.monthSuffix', { n: String(m) })}: ${minutesToHM(min)}\n`;
-                }
-            }
-        } else {
-            md += `## ${this.plugin.t('panel.report.dailyDetails')}\n\n`;
-            const dayMap = new Map<string, number>();
-            for (const e of entries) {
-                dayMap.set(e.date, (dayMap.get(e.date) ?? 0) + e.duration);
-            }
-            const sortedDays = Array.from(dayMap.keys()).sort();
-            for (const d of sortedDays) {
-                const min = dayMap.get(d) ?? 0;
-                md += `- ${d}: ${minutesToHM(min)}\n`;
-            }
+        // Hole for donut look
+        const hole = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        hole.setAttribute('cx', String(cx));
+        hole.setAttribute('cy', String(cy));
+        hole.setAttribute('r', '40');
+        hole.setAttribute('fill', 'var(--background-primary)');
+        svg.appendChild(hole);
+
+        // Labels
+        const labelsWrap = el.createDiv({ cls: 'Tomato-stats-labels' });
+        for (const [proj, mins] of projList) {
+            const label = labelsWrap.createDiv({ cls: 'Tomato-stats-label' });
+            const dot = label.createDiv({ cls: 'Tomato-stats-dot' });
+            dot.style.backgroundColor = projectColor(this.plugin, proj === noProjectLabel ? '' : proj);
+            const pct = Math.round((mins / total) * 100);
+            label.createSpan({ text: `${proj} ${minutesToHM(mins)} (${pct}%)` });
         }
 
-        const folder = normalizePath(`${this.plugin.settings.logFolder}/Reports`);
-        const fileName = `${title}.md`;
-        const filePath = `${folder}/${fileName}`;
+        // Total center text
+        const totalText = chartWrap.createDiv({ cls: 'Tomato-pie-total' });
+        totalText.setText(minutesToHM(total));
+    }
 
-        await this.app.vault.adapter.mkdir(folder);
-        const existing = this.app.vault.getFileByPath(filePath);
-        if (existing instanceof TFile) {
-            await this.app.vault.modify(existing, md);
-        } else {
-            await this.app.vault.create(filePath, md);
+    // ========== CONTEXT MENU & EDITING ==========
+
+    private showEntryMenu(evt: MouseEvent, date: string, entry: ParsedEntry, index: number): void {
+        const menu = new Menu();
+        menu.addItem(item => {
+            item.setTitle(this.plugin.t('panel.entry.edit'));
+            item.setIcon('pencil');
+            item.onClick(() => this.editEntryDialog(date, index, entry));
+        });
+        menu.addItem(item => {
+            item.setTitle(this.plugin.t('panel.entry.delete'));
+            item.setIcon('trash');
+            item.onClick(() => this.deleteEntry(date, index));
+        });
+        menu.showAtMouseEvent(evt);
+    }
+
+    private async deleteEntry(date: string, index: number): Promise<void> {
+        const { entries } = await parseDayFile(this.plugin.app, this.plugin.settings, date);
+        entries.splice(index, 1);
+        await writeDayEntries(this.plugin.app, this.plugin.settings, date, entries);
+        new Notice(this.plugin.t('panel.entry.delete'));
+        await this.refreshTabContent();
+    }
+
+    private editEntryDialog(date: string, index: number, entry: ParsedEntry): void {
+        const rawTask = entry.taskName.replace(/^tomato_project[�?]\s*\S+\s*/, '').trim();
+        new EntryModal(this.app, this.plugin, this.plugin.t('panel.entry.edit'), {
+            startTime: entry.startTime,
+            endTime: entry.endTime,
+            duration: String(entry.duration),
+            project: entry.project || '',
+            task: rawTask,
+        }, (result) => {
+            const startMin = timeToMinutes(result.startTime || entry.startTime);
+            const endMin = timeToMinutes(result.endTime || entry.endTime);
+            if (isNaN(startMin) || isNaN(endMin)) {
+                new Notice(this.plugin.t('notice.invalidTimeFormat'));
+                return;
+            }
+            void this.doEditEntry(date, index, {
+                startTime: result.startTime,
+                endTime: result.endTime,
+                duration: Math.max(0, endMin - startMin),
+                project: result.project || undefined,
+                taskName: result.task || undefined,
+            });
+        }, () => {
+            void this.deleteEntry(date, index);
+        }).open();
+    }
+
+    private async doEditEntry(date: string, index: number, updates: Partial<ParsedEntry>): Promise<void> {
+        const { entries } = await parseDayFile(this.plugin.app, this.plugin.settings, date);
+        if (index >= 0 && index < entries.length) {
+            const updated = { ...entries[index], ...updates };
+            this.encodeProjectIntoTaskName(updated);
+            entries[index] = updated;
+            await writeDayEntries(this.plugin.app, this.plugin.settings, date, entries);
+            new Notice(this.plugin.t('panel.entry.edit'));
+            this.plugin.refreshLogViews();
         }
-        const file = this.app.vault.getFileByPath(filePath);
-        if (file) {
-            await this.app.workspace.getLeaf().openFile(file);
+    }
+
+    private encodeProjectIntoTaskName(entry: ParsedEntry): void {
+        if (entry.project) {
+            const rawTask = (entry.taskName || '').replace(/^tomato_project[�?]\s*\S+\s*/, '').trim();
+            entry.taskName = `tomato_project�?{entry.project}${rawTask ? ' ' + rawTask : ''}`;
+            entry.rest = entry.taskName;
+        }
+    }
+
+    private showAddEntryDialog(date: string, startTime: string): void {
+        new EntryModal(this.app, this.plugin, this.plugin.t('panel.entry.add'), {
+            startTime,
+            endTime: '',
+            duration: '60',
+            project: this.plugin.timer.getCurrentProject() || '',
+            task: this.plugin.timer.getTaskName() || '',
+        }, (result) => {
+            const duration = parseInt(result.duration || '60', 10);
+            if (isNaN(duration) || duration <= 0) {
+                new Notice(this.plugin.t('notice.invalidDuration'));
+                return;
+            }
+            const st = result.startTime || startTime;
+            const startMin = timeToMinutes(st);
+            const endMin = startMin + duration;
+            const h = Math.floor(endMin / 60) % 24;
+            const m = endMin % 60;
+            const endTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            void this.doAddEntry(date, {
+                startTime: st,
+                endTime,
+                duration,
+                mode: this.plugin.timer.getMode(),
+                project: result.project || undefined,
+                taskName: result.task || '',
+                rest: result.task || '',
+            });
+        }).open();
+    }
+
+    private async doAddEntry(date: string, entry: ParsedEntry): Promise<void> {
+        this.encodeProjectIntoTaskName(entry);
+        const { entries } = await parseDayFile(this.plugin.app, this.plugin.settings, date);
+        entries.push(entry);
+        entries.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+        await writeDayEntries(this.plugin.app, this.plugin.settings, date, entries);
+        new Notice(this.plugin.t('panel.entry.add'));
+        this.plugin.refreshLogViews();
+    }
+}
+
+// ========== MODAL ==========
+
+interface EntryForm {
+    startTime: string;
+    endTime: string;
+    duration: string;
+    project: string;
+    task: string;
+}
+
+class EntryModal extends Modal {
+    private result: EntryForm;
+    private onSave: (result: EntryForm) => void;
+    private onDelete?: () => void;
+    private plugin: TomatoPlugin;
+
+    constructor(app: App, plugin: TomatoPlugin, title: string, initial: EntryForm, onSave: (result: EntryForm) => void, onDelete?: () => void) {
+        super(app);
+        this.plugin = plugin;
+        this.titleEl.setText(title);
+        this.result = { ...initial };
+        this.onSave = onSave;
+        this.onDelete = onDelete;
+    }
+
+    onOpen(): void {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.addClass('Tomato-modal');
+
+        new Setting(contentEl)
+            .setName(this.plugin.t('panel.entry.startTime'))
+            .addText(text => {
+                text.setValue(this.result.startTime);
+                text.onChange(v => { this.result.startTime = v; });
+            });
+
+        new Setting(contentEl)
+            .setName(this.plugin.t('panel.entry.endTime'))
+            .addText(text => {
+                text.setValue(this.result.endTime);
+                text.onChange(v => { this.result.endTime = v; });
+            });
+
+        new Setting(contentEl)
+            .setName(this.plugin.t('panel.entry.duration'))
+            .addText(text => {
+                text.setValue(this.result.duration);
+                text.onChange(v => { this.result.duration = v; });
+            });
+
+        new Setting(contentEl)
+            .setName(this.plugin.t('panel.entry.project'))
+            .addText(text => {
+                text.setValue(this.result.project);
+                text.onChange(v => { this.result.project = v; });
+            });
+
+        new Setting(contentEl)
+            .setName(this.plugin.t('panel.entry.task'))
+            .addText(text => {
+                text.setValue(this.result.task);
+                text.onChange(v => { this.result.task = v; });
+            });
+
+        const btnSetting = new Setting(contentEl)
+            .addButton(btn => {
+                btn.setButtonText(this.plugin.t('panel.btn.save'));
+                btn.onClick(() => {
+                    this.onSave(this.result);
+                    this.close();
+                });
+            });
+
+        if (this.onDelete) {
+            btnSetting.addButton(btn => {
+                btn.setButtonText(this.plugin.t('panel.entry.delete'));
+                btn.buttonEl.addClass('mod-warning');
+                btn.onClick(() => {
+                    this.onDelete!();
+                    this.close();
+                });
+            });
         }
     }
 }

@@ -4,8 +4,8 @@
 .Tomato-container {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    padding: 20px 16px 16px;
+    align-items: stretch;
+    padding: 16px;
     gap: 14px;
     height: 100%;
     overflow-y: auto;
@@ -13,153 +13,36 @@
     user-select: none;
 }
 
+/* Timer section stays centered and compact */
+
 /* =====================================================
    Header
    ===================================================== */
-.Tomato-header {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-}
 
-.Tomato-icon {
-    font-size: 2.4rem;
-    line-height: 1;
-}
 
-.Tomato-title-row {
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-normal);
-}
 
-.Tomato-count {
-    font-weight: normal;
-    color: var(--text-muted);
-    font-size: 0.9rem;
-}
 
 /* =====================================================
    Progress dots
    ===================================================== */
-.Tomato-dots {
-    display: flex;
-    gap: 8px;
-}
 
-.Tomato-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--background-modifier-border);
-    transition: background 0.3s;
-}
 
-.Tomato-dot.completed {
-    background: var(--color-red);
-}
 
-.Tomato-dot.active {
-    background: var(--color-orange);
-    box-shadow: 0 0 5px var(--color-orange);
-}
 
-/* =====================================================
-   Timer area — mirrors Python window.config(bg=...) via data-phase
-   ===================================================== */
-.Tomato-timer-area {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 18px 32px;
-    border-radius: 12px;
-    background: var(--background-secondary);
-    width: 100%;
-    max-width: 200px;
-    transition: background 0.5s;
-}
 
-.Tomato-container[data-phase="shortBreak"] .Tomato-timer-area {
-    background: rgba(86, 130, 3, 0.12);
-}
 
-.Tomato-container[data-phase="longBreak"] .Tomato-timer-area {
-    background: rgba(173, 8, 77, 0.12);
-}
-
-/* Mirrors Python timer_label font=("Courier", 20, "bold") */
-.Tomato-timer-display {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 2.6rem;
-    font-weight: bold;
-    letter-spacing: 2px;
-    color: var(--text-normal);
-    line-height: 1;
-}
-
-.Tomato-status-text {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--text-muted);
-}
 
 /* =====================================================
    Controls
    ===================================================== */
-.Tomato-controls {
-    display: flex;
-    gap: 6px;
-    width: 100%;
-    max-width: 200px;
-}
 
-.Tomato-btn {
-    flex: 1;
-    padding: 7px 10px;
-    border-radius: 6px;
-    border: none;
-    cursor: pointer;
-    font-size: 0.82rem;
-    font-weight: 500;
-    transition: opacity 0.15s, transform 0.1s;
-}
 
-.Tomato-btn:hover {
-    opacity: 0.82;
-}
 
-.Tomato-btn:active {
-    transform: scale(0.96);
-}
 
-.Tomato-btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-}
 
-.Tomato-btn-primary {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-}
 
-.Tomato-btn-secondary {
-    background: var(--background-modifier-border);
-    color: var(--text-normal);
-}
 
-.Tomato-btn-danger {
-    background: var(--background-modifier-border);
-    color: var(--text-muted);
-}
 
-.Tomato-btn-danger:hover {
-    background: var(--color-red);
-    color: #fff;
-    opacity: 1;
-}
 
 /* =====================================================
    Status bar
@@ -176,201 +59,43 @@
 /* =====================================================
    History
    ===================================================== */
-.Tomato-history {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    border-top: 1px solid var(--background-modifier-border);
-    padding-top: 14px;
-}
 
-.Tomato-history-section {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
 
-.Tomato-history-heading {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-muted);
-}
-
-.Tomato-today-summary,
-.Tomato-total {
-    font-weight: normal;
-    color: var(--text-muted);
-}
 
 /* Today entry list */
-.Tomato-today-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
 
-.Tomato-today-item {
-    display: flex;
-    gap: 6px;
-    align-items: baseline;
-    font-size: 0.82rem;
-    line-height: 1.5;
-}
 
-.Tomato-entry-time {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    flex-shrink: 0;
-}
 
-.Tomato-entry-note {
-    color: var(--text-normal);
-}
 
 /* Inline-render markdown paragraphs inside the entry note */
-.Tomato-entry-note p {
-    margin: 0;
-    display: inline;
-}
 
 /* =====================================================
    Weekly bar chart (pure CSS, no library)
    ===================================================== */
-.Tomato-week-bar {
-    display: flex;
-    gap: 4px;
-    align-items: flex-end;
-    height: 56px;
-}
 
-.Tomato-bar-col {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 2px;
-    height: 100%;
-}
 
-.Tomato-bar-fill {
-    width: 100%;
-    min-height: 2px;
-    background: var(--interactive-accent);
-    opacity: 0.4;
-    border-radius: 2px 2px 0 0;
-    transition: height 0.3s ease;
-}
 
-.Tomato-bar-fill.today {
-    opacity: 0.9;
-}
 
-.Tomato-bar-label {
-    font-size: 0.6rem;
-    color: var(--text-faint);
-    text-align: center;
-    white-space: nowrap;
-}
 
-.Tomato-bar-count {
-    font-size: 0.62rem;
-    color: var(--text-muted);
-    text-align: center;
-    line-height: 1;
-}
 
 /* =====================================================
    Mode switcher
    ===================================================== */
-.Tomato-mode-switcher {
-    display: flex;
-    gap: 6px;
-    width: 100%;
-    max-width: 200px;
-}
 
-.Tomato-mode-btn {
-    flex: 1;
-    padding: 6px 4px;
-    border-radius: 6px;
-    border: 1px solid var(--background-modifier-border);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
 
-.Tomato-mode-btn:hover {
-    background: var(--background-modifier-hover);
-}
 
-.Tomato-mode-btn.active {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border-color: var(--interactive-accent);
-}
 
 /* =====================================================
    Task input
    ===================================================== */
-.Tomato-task-wrap {
-    width: 100%;
-    max-width: 200px;
-}
 
-.Tomato-task-input {
-    width: 100%;
-    padding: 6px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 0.85rem;
-    box-sizing: border-box;
-}
 
-.Tomato-task-input:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-}
 
 /* =====================================================
    Countdown input
    ===================================================== */
-.Tomato-countdown-wrap {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    max-width: 200px;
-    font-size: 0.85rem;
-    color: var(--text-muted);
-}
 
-.Tomato-countdown-input {
-    width: 60px;
-    padding: 4px 8px;
-    border-radius: 4px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 0.85rem;
-    text-align: center;
-}
 
-.Tomato-countdown-input:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-}
 
 /* =====================================================
    Compact panel
@@ -601,265 +326,46 @@
     border-style: solid !important;
 }
 
-.Tomato-task-row {
-    display: flex;
-    gap: 6px;
-    width: 100%;
-    max-width: 200px;
-    align-items: center;
-}
 
-.Tomato-project-select {
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 0.85rem;
-    min-width: 80px;
-    flex-shrink: 0;
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23currentColor%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
-    background-repeat: no-repeat;
-    background-position: right 6px top 50%;
-    background-size: 10px auto;
-    padding-right: 20px;
-}
-
-.Tomato-project-select:focus,
-.Tomato-project-select:focus-visible,
-.Tomato-project-select:active {
-    outline: none !important;
-    box-shadow: none !important;
-    border-color: var(--interactive-accent) !important;
-    border-width: 1px !important;
-    border-style: solid !important;
-}
 
 /* =====================================================
    Tabs
    ===================================================== */
-.Tomato-tabs {
-    display: flex;
-    gap: 4px;
-    width: 100%;
-    max-width: 200px;
-    border-bottom: 1px solid var(--background-modifier-border);
-}
 
-.Tomato-tab-btn {
-    flex: 1;
-    padding: 6px 4px;
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: color 0.15s, border-color 0.15s;
-}
 
-.Tomato-tab-btn.active {
-    color: var(--interactive-accent);
-    border-bottom-color: var(--interactive-accent);
-}
 
-.Tomato-tab-content {
-    width: 100%;
-    max-width: 200px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
 
 /* =====================================================
    Timeline
    ===================================================== */
-.Tomato-tl-nav {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 4px;
-}
 
-.Tomato-tl-nav-btn {
-    padding: 2px 6px;
-    border-radius: 4px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 0.75rem;
-    cursor: pointer;
-}
 
-.Tomato-tl-date {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--text-normal);
-}
 
-.Tomato-tl-track-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
 
-.Tomato-tl-hours {
-    position: relative;
-    height: 14px;
-}
 
-.Tomato-tl-hour-label {
-    position: absolute;
-    top: 0;
-    transform: translateX(-50%);
-    font-size: 0.6rem;
-    color: var(--text-faint);
-}
 
-.Tomato-tl-track {
-    position: relative;
-    height: 24px;
-    background: var(--background-secondary);
-    border-radius: 4px;
-    overflow: hidden;
-}
 
-.Tomato-tl-bar {
-    position: absolute;
-    top: 2px;
-    height: 20px;
-    border-radius: 3px;
-    opacity: 0.85;
-}
 
-.Tomato-tl-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
 
-.Tomato-tl-legend-item {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 0.7rem;
-    color: var(--text-muted);
-}
 
-.Tomato-tl-legend-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-}
 
-.Tomato-tl-summary {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    text-align: center;
-}
 
 /* =====================================================
    Stats
    ===================================================== */
-.Tomato-stats-periods {
-    display: flex;
-    gap: 4px;
-}
 
-.Tomato-stats-period-btn {
-    flex: 1;
-    padding: 4px;
-    border-radius: 4px;
-    border: 1px solid var(--background-modifier-border);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    cursor: pointer;
-}
 
-.Tomato-stats-period-btn.active {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border-color: var(--interactive-accent);
-}
 
-.Tomato-stats-export {
-    display: flex;
-    justify-content: center;
-}
 
-.Tomato-stats-cards {
-    display: flex;
-    gap: 8px;
-}
 
-.Tomato-stats-card {
-    flex: 1;
-    padding: 10px;
-    border-radius: 8px;
-    background: var(--background-secondary);
-    text-align: center;
-    font-size: 0.8rem;
-    color: var(--text-normal);
-    white-space: pre-line;
-}
 
-.Tomato-stats-section {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
 
-.Tomato-stats-heading {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-muted);
-}
 
-.Tomato-stats-dist {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
 
-.Tomato-stats-dist-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.75rem;
-}
 
-.Tomato-stats-dist-name {
-    width: 60px;
-    flex-shrink: 0;
-    color: var(--text-normal);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
 
-.Tomato-stats-dist-bar-wrap {
-    flex: 1;
-    height: 8px;
-    background: var(--background-secondary);
-    border-radius: 4px;
-    overflow: hidden;
-}
 
-.Tomato-stats-dist-bar {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.3s ease;
-}
 
-.Tomato-stats-dist-val {
-    width: 50px;
-    flex-shrink: 0;
-    text-align: right;
-    color: var(--text-muted);
-}
 
 .Tomato-stats-chart {
     display: flex;
@@ -868,52 +374,14 @@
     height: 80px;
 }
 
-.Tomato-stats-chart-col {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 2px;
-    height: 100%;
-}
 
-.Tomato-stats-chart-val {
-    font-size: 0.55rem;
-    color: var(--text-muted);
-    text-align: center;
-}
 
-.Tomato-stats-chart-fill {
-    width: 100%;
-    min-height: 2px;
-    background: var(--interactive-accent);
-    opacity: 0.5;
-    border-radius: 2px 2px 0 0;
-    transition: height 0.3s ease;
-}
 
-.Tomato-stats-chart-fill.today {
-    opacity: 0.9;
-}
 
-.Tomato-stats-chart-label {
-    font-size: 0.55rem;
-    color: var(--text-faint);
-    text-align: center;
-    white-space: nowrap;
-}
 
 /* =====================================================
    History entry dot
    ===================================================== */
-.Tomato-entry-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    margin-top: 4px;
-}
 
 /* =====================================================
    Settings project list
@@ -955,6 +423,569 @@
     border-radius: 4px;
     border: 1px solid var(--background-modifier-border);
     background: transparent;
+}
+
+/* =====================================================
+   Week View
+   ===================================================== */
+.Tomato-week-view {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+    min-height: 0;
+}
+
+.Tomato-week-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.Tomato-week-nav-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.Tomato-week-nav-btn {
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.9rem;
     cursor: pointer;
+    line-height: 1;
+}
+
+.Tomato-week-nav-btn:hover {
+    background: var(--background-modifier-hover);
+}
+
+.Tomato-week-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-normal);
+    white-space: nowrap;
+}
+
+.Tomato-week-today-btn {
     font-size: 0.8rem;
+    margin-left: 4px;
+}
+
+.Tomato-cal-view-switch {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+}
+
+.Tomato-cal-view-btn {
+    background: transparent;
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-muted);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.7rem;
+    cursor: pointer;
+}
+
+.Tomato-cal-view-btn.active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+.Tomato-view-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.Tomato-view-tab {
+    padding: 6px 14px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+    margin-bottom: -1px;
+}
+
+.Tomato-view-tab.active {
+    color: var(--interactive-accent);
+    border-bottom-color: var(--interactive-accent);
+    font-weight: 600;
+}
+
+.Tomato-view-tab:hover {
+    color: var(--text-normal);
+}
+
+
+
+
+
+
+
+
+
+.Tomato-week-tab-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+
+/* =====================================================
+   Calendar View
+   ===================================================== */
+.Tomato-cal-header-row {
+    display: grid;
+    border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
+    min-width: 0;
+}
+
+.Tomato-cal-ruler-placeholder {
+    width: 44px;
+    border-right: 1px solid var(--background-modifier-border);
+}
+
+.Tomato-cal-grid {
+    display: grid;
+    grid-template-rows: 1fr;
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+.Tomato-cal-wrap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.Tomato-cal-project-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 8px 0;
+    background: var(--background-modifier-border);
+    gap: 2px;
+}
+
+.Tomato-cal-project-seg {
+    height: 100%;
+    transition: opacity 0.15s;
+}
+
+.Tomato-cal-project-seg:hover {
+    opacity: 0.8;
+}
+
+.Tomato-cal-current-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--interactive-accent);
+    pointer-events: none;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+}
+
+.Tomato-cal-current-line::before {
+    content: '';
+    position: absolute;
+    left: 38px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--interactive-accent);
+    transform: translateY(-50%);
+    top: 1px;
+}
+
+.Tomato-cal-current-label {
+    position: absolute;
+    left: 2px;
+    transform: translateY(-50%);
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--interactive-accent);
+    background: var(--background-primary);
+    padding: 1px 4px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+.Tomato-cal-ruler {
+    width: 44px;
+    position: relative;
+    border-right: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
+    padding-top: 0.5rem;
+    box-sizing: border-box;
+}
+
+.Tomato-cal-ruler-month {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-right: 6px;
+}
+
+.Tomato-cal-ruler-month .Tomato-cal-ruler-label {
+    position: relative;
+    transform: none;
+    top: auto !important;
+    right: auto;
+}
+
+.Tomato-cal-ruler-label {
+    position: absolute;
+    right: 4px;
+    transform: translateY(-50%);
+    font-size: 0.65rem;
+    color: var(--text-faint);
+}
+
+
+
+.Tomato-cal-col-header {
+    text-align: center;
+    padding: 6px 2px;
+    border-left: 1px solid var(--background-modifier-border-hover);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.Tomato-cal-col-header.first-col {
+    border-left: none;
+}
+
+.Tomato-cal-col-header.today {
+    color: var(--interactive-accent);
+    font-weight: 700;
+}
+
+.Tomato-cal-col-daynum {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-normal);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    min-height: 22px;
+}
+
+.Tomato-cal-col-header.today .Tomato-cal-col-daynum {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-radius: 50%;
+}
+
+.Tomato-cal-col-dayname {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+}
+
+.Tomato-cal-col {
+    position: relative;
+    border-left: 1px solid color-mix(in srgb, var(--background-modifier-border-hover) 40%, transparent);
+    cursor: pointer;
+}
+
+.Tomato-cal-col.first-col {
+    border-left: none;
+}
+
+.Tomato-cal-hline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: color-mix(in srgb, var(--background-modifier-border-hover) 40%, transparent);
+    pointer-events: none;
+}
+
+.Tomato-cal-bar {
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.9);
+    overflow: hidden;
+    cursor: grab;
+    box-sizing: border-box;
+    line-height: 1.2;
+}
+
+.Tomato-cal-bar:active {
+    cursor: grabbing;
+}
+
+.Tomato-cal-bar-dragging {
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.Tomato-cal-bar-title {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.Tomato-cal-bar-time {
+    opacity: 0.85;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.Tomato-cal-bar-dragtime {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.45);
+    padding: 1px 4px;
+    border-radius: 3px;
+    pointer-events: none;
+    display: none;
+}
+
+.Tomato-cal-bar-resize-handle {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 5px;
+    cursor: ns-resize;
+    pointer-events: auto;
+    z-index: 2;
+    background: rgba(255, 255, 255, 0.25);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.Tomato-cal-bar:hover .Tomato-cal-bar-resize-handle {
+    opacity: 1;
+}
+
+.Tomato-cal-bar-resize-top {
+    top: 0;
+    border-radius: 3px 3px 0 0;
+}
+
+.Tomato-cal-bar-resize-bottom {
+    bottom: 0;
+    border-radius: 0 0 3px 3px;
+}
+
+.Tomato-cal-bar-ongoing {
+    opacity: 0.65;
+    z-index: 5;
+    border: 1px dashed rgba(255, 255, 255, 0.4);
+    animation: tomato-pulse 2s ease-in-out infinite;
+}
+
+@keyframes tomato-pulse {
+
+    0%,
+    100% {
+        opacity: 0.55;
+    }
+
+    50% {
+        opacity: 0.75;
+    }
+}
+
+/* =====================================================
+   List View
+   ===================================================== */
+.Tomato-list-total {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 0;
+}
+
+.Tomato-list-day {
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding: 8px 0;
+}
+
+.Tomato-list-day-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-normal);
+    padding-bottom: 6px;
+}
+
+.Tomato-list-day-header.today {
+    color: var(--interactive-accent);
+}
+
+.Tomato-list-day-total {
+    font-weight: 500;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.Tomato-list-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: context-menu;
+}
+
+.Tomato-list-row:hover {
+    background: var(--background-modifier-hover);
+}
+
+.Tomato-list-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.Tomato-list-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.Tomato-list-task {
+    font-size: 0.85rem;
+    color: var(--text-normal);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.Tomato-list-time {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.Tomato-list-duration {
+    font-size: 0.85rem;
+    color: var(--text-normal);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* =====================================================
+   Timesheet View
+   ===================================================== */
+.Tomato-ts-table {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 0.8rem;
+}
+
+.Tomato-ts-row {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+}
+
+.Tomato-ts-row:hover {
+    background: var(--background-modifier-hover);
+}
+
+.Tomato-ts-header {
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+}
+
+.Tomato-ts-header .Tomato-ts-cell {
+    padding: 4px 2px;
+}
+
+.Tomato-ts-cell {
+    flex: 1;
+    text-align: center;
+    padding: 6px 2px;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.Tomato-ts-project {
+    flex: 1.5;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 8px;
+}
+
+.Tomato-ts-total {
+    flex: 1;
+    font-weight: 600;
+    text-align: right;
+    padding-right: 8px;
+}
+
+.Tomato-ts-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.Tomato-ts-date {
+    font-size: 0.65rem;
+    color: var(--text-faint);
+}
+
+.Tomato-ts-total-row {
+    border-top: 1px solid var(--background-modifier-border);
+    margin-top: 4px;
+    padding-top: 4px;
+    font-weight: 600;
+}
+
+/* =====================================================
+   Empty state
+   ===================================================== */
+.Tomato-empty {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-faint);
+    font-size: 0.9rem;
 }
