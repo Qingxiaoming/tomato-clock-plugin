@@ -43,6 +43,18 @@
 		today = window.moment();
 	}
 
+	export function incrementDisplayedMonth() {
+		displayedMonth = displayedMonth.clone().add(1, 'month');
+	}
+
+	export function decrementDisplayedMonth() {
+		displayedMonth = displayedMonth.clone().subtract(1, 'month');
+	}
+
+	export function resetDisplayedMonth() {
+		displayedMonth = today.clone();
+	}
+
 	function getToday(settings: ISettings) {
 		configureGlobalMomentLocale(
 			settings.localeOverride,

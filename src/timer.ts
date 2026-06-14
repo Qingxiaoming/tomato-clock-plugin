@@ -1,5 +1,6 @@
 export type PhaseType = 'work' | 'shortBreak' | 'longBreak' | 'idle' | 'stopwatch' | 'countdown';
 export type TimerMode = 'pomodoro' | 'stopwatch' | 'countdown';
+export type TimerStatus = 'idle' | 'running' | 'paused';
 
 export interface TomatoTimerSettings {
     workMinutes: number;
@@ -13,28 +14,27 @@ export interface TomatoTimerSettings {
 export interface TimerState {
     phase: PhaseType;
     mode: TimerMode;
-    reps: number;
+    status: TimerStatus;
     remainingSeconds: number;
     elapsedSeconds: number;
-    isRunning: boolean;
     completedTomatos: number;
     taskName: string;
     currentProject: string;
+    totalPhaseSeconds: number;
 }
 
 export interface RecoveryData {
     mode: TimerMode;
     phase: PhaseType;
-    isRunning: boolean;
-    startTime: number;
+    status: TimerStatus;
     accumulatedMs: number;
+    cycleIndex: number;
     taskName: string;
     currentProject: string;
     lastUpdated: number;
-    sessionStartDate: string;
-    sessionStartTime: string;
+    sessionDate: string;
+    sessionTime: string;
     countdownSeconds: number;
-    reps: number;
     completedTomatos: number;
     sessionStartMode: TimerMode;
 }
@@ -42,93 +42,151 @@ export interface RecoveryData {
 export type TimerTickCallback = (state: TimerState) => void;
 export type PhaseCompleteCallback = (completed: PhaseType, next: PhaseType, durationMinutes: number) => void;
 
+/**
+ * 计时器核心状态
+ */
+interface CoreState {
+    mode: TimerMode;
+    status: TimerStatus;
+    phase: PhaseType;
+    cycleIndex: number;
+    segmentStartMs: number;
+    accumulatedMs: number;
+    countdownSec: number;
+    completedTomatos: number;
+    sessionDate: string;
+    sessionTime: string;
+    sessionMode: TimerMode;
+    taskName: string;
+    currentProject: string;
+}
+
+function nowDateStr(): string {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+}
+
+function nowTimeStr(): string {
+    const n = new Date();
+    return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * 纯函数：根据 cycleIndex 和 cycles 计算当前 phase
+ */
+function calcPhase(mode: TimerMode, cycleIndex: number, cycles: number): PhaseType {
+    if (cycleIndex === 0) return 'idle';
+    if (mode === 'stopwatch') return 'stopwatch';
+    if (mode === 'countdown') return 'countdown';
+    // 番茄钟: 1=work, 2=shortBreak, 3=work, 4=shortBreak, ..., 6=longBreak (cycles=3)
+    if (cycleIndex % 2 === 1) return 'work';
+    if (cycleIndex % (cycles * 2) === 0) return 'longBreak';
+    return 'shortBreak';
+}
+
+/**
+ * 纯函数：计算 phase 的总时长（秒）
+ */
+function calcPhaseDuration(phase: PhaseType, settings: TomatoTimerSettings, countdownSec: number): number {
+    switch (phase) {
+        case 'work': return settings.workMinutes * 60;
+        case 'shortBreak': return settings.shortBreakMinutes * 60;
+        case 'longBreak': return settings.longBreakMinutes * 60;
+        case 'countdown': return countdownSec;
+        case 'idle':
+            // 就绪时显示默认时长
+            return 0;
+        default: return 0;
+    }
+}
+
+/**
+ * 纯函数：计算番茄钟的下一个 phase
+ */
+function calcNextPomodoroPhase(cycleIndex: number, cycles: number): PhaseType {
+    const nextIndex = cycleIndex + 1;
+    if (nextIndex % 2 === 1) return 'work';
+    if (nextIndex % (cycles * 2) === 0) return 'longBreak';
+    return 'shortBreak';
+}
+
 export class TomatoTimer {
     private settings: TomatoTimerSettings;
-    private reps = 0;
-    private isRunning = false;
     private intervalId: number | null = null;
-    private completedTomatos = 0;
-    private startTime: number = 0;
-    private accumulatedMs: number = 0;
-
-    private mode: TimerMode = 'pomodoro';
-    private countdownSeconds: number = 0;
-    private taskName: string = '';
-    private currentProject: string = '';
-    private sessionStartDate: string = '';
-    private sessionStartTime: string = '';
-    private sessionStartMode: TimerMode = 'pomodoro';
 
     private onTickCb: TimerTickCallback | null = null;
     private onPhaseCb: PhaseCompleteCallback | null = null;
 
+    // 核心状态
+    private state: CoreState;
+
     constructor(settings: TomatoTimerSettings) {
         this.settings = settings;
-        this.countdownSeconds = settings.countdownMinutes * 60;
+        this.state = this.createIdleState('pomodoro');
     }
 
-    updateSettings(settings: TomatoTimerSettings): void {
-        this.settings = settings;
-        if (this.mode === 'countdown' && this.reps === 0) {
-            this.countdownSeconds = settings.countdownMinutes * 60;
-        }
-        this.notifyTick();
+    private createIdleState(mode: TimerMode): CoreState {
+        return {
+            mode,
+            status: 'idle',
+            phase: 'idle',
+            cycleIndex: 0,
+            segmentStartMs: 0,
+            accumulatedMs: 0,
+            countdownSec: mode === 'countdown' ? this.settings.countdownMinutes * 60 : 0,
+            completedTomatos: 0,
+            sessionDate: '',
+            sessionTime: '',
+            sessionMode: mode,
+            taskName: '',
+            currentProject: '',
+        };
     }
+
+    // ========== 公共 API ==========
 
     onTick(cb: TimerTickCallback): void { this.onTickCb = cb; }
     onPhaseComplete(cb: PhaseCompleteCallback): void { this.onPhaseCb = cb; }
 
-    setMode(mode: TimerMode): void {
-        this.mode = mode;
-        if (mode === 'countdown') {
-            this.countdownSeconds = this.settings.countdownMinutes * 60;
+    updateSettings(settings: TomatoTimerSettings): void {
+        this.settings = settings;
+        if (this.state.status === 'idle' && this.state.mode === 'countdown') {
+            this.state.countdownSec = settings.countdownMinutes * 60;
         }
+        this.notifyTick();
     }
 
-    getMode(): TimerMode {
-        return this.mode;
+    setMode(mode: TimerMode): void {
+        this.state = this.createIdleState(mode);
+        this.stopInterval();
+        this.notifyTick();
     }
+
+    getMode(): TimerMode { return this.state.mode; }
 
     setCountdownMinutes(minutes: number): void {
-        this.countdownSeconds = minutes * 60;
+        this.setCountdownSeconds(minutes * 60);
     }
 
     setCountdownSeconds(seconds: number): void {
-        this.countdownSeconds = seconds;
+        this.state.countdownSec = seconds;
+        if (this.state.status === 'idle') {
+            this.notifyTick();
+        }
     }
 
-    setTaskName(name: string): void {
-        this.taskName = name;
-    }
-
-    getTaskName(): string {
-        return this.taskName;
-    }
-
-    setCurrentProject(project: string): void {
-        this.currentProject = project;
-    }
-
-    getCurrentProject(): string {
-        return this.currentProject;
-    }
-
-    getSessionStartDate(): string {
-        return this.sessionStartDate;
-    }
-
-    getSessionStartTime(): string {
-        return this.sessionStartTime;
-    }
-
-    getSessionStartMode(): TimerMode {
-        return this.sessionStartMode;
-    }
+    setTaskName(name: string): void { this.state.taskName = name; }
+    getTaskName(): string { return this.state.taskName; }
+    setCurrentProject(project: string): void { this.state.currentProject = project; }
+    getCurrentProject(): string { return this.state.currentProject; }
+    getSessionStartDate(): string { return this.state.sessionDate; }
+    getSessionStartTime(): string { return this.state.sessionTime; }
+    getSessionStartMode(): TimerMode { return this.state.sessionMode; }
 
     adjustSessionStart(minuteDelta: number): void {
-        const [h, m] = this.sessionStartTime.split(':').map(Number);
+        const [h, m] = this.state.sessionTime.split(':').map(Number);
         let totalMin = h * 60 + m + minuteDelta;
-        const d = new Date(this.sessionStartDate + 'T00:00:00');
+        const d = new Date(this.state.sessionDate + 'T00:00:00');
         while (totalMin < 0) {
             d.setDate(d.getDate() - 1);
             totalMin += 1440;
@@ -137,60 +195,98 @@ export class TomatoTimer {
             d.setDate(d.getDate() + 1);
             totalMin -= 1440;
         }
-        this.sessionStartDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        this.sessionStartTime = `${String(Math.floor(totalMin / 60)).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`;
-        if (this.isRunning) {
-            this.startTime += minuteDelta * 60000;
+        this.state.sessionDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        this.state.sessionTime = `${String(Math.floor(totalMin / 60)).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`;
+
+        if (this.state.status === 'running') {
+            this.state.segmentStartMs += minuteDelta * 60000;
         }
         this.notifyTick();
     }
 
+    // ========== 核心操作 ==========
+
     start(): void {
-        if (this.isRunning) return;
-        if (this.mode === 'pomodoro') {
-            this.reps += 1;
+        if (this.state.status === 'running') return;
+
+        const now = Date.now();
+
+        if (this.state.mode === 'pomodoro') {
+            this.state.cycleIndex += 1;
+            this.state.phase = calcPhase('pomodoro', this.state.cycleIndex, this.settings.cycles);
         } else {
-            this.reps = 1;
+            this.state.cycleIndex = 1;
+            this.state.phase = this.state.mode === 'stopwatch' ? 'stopwatch' : 'countdown';
         }
-        this.isRunning = true;
-        this.accumulatedMs = 0;
-        this.startTime = Date.now();
-        const now = new Date();
-        this.sessionStartDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        this.sessionStartTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        this.sessionStartMode = this.mode;
+
+        this.state.status = 'running';
+        this.state.segmentStartMs = now;
+        this.state.accumulatedMs = 0;
+        this.state.sessionDate = nowDateStr();
+        this.state.sessionTime = nowTimeStr();
+        this.state.sessionMode = this.state.mode;
+
         this.startInterval();
         this.notifyTick();
     }
 
     pause(): void {
-        if (!this.isRunning) return;
-        this.accumulatedMs += Date.now() - this.startTime;
-        this.isRunning = false;
+        if (this.state.status !== 'running') return;
+
+        this.state.accumulatedMs += Date.now() - this.state.segmentStartMs;
+        this.state.status = 'paused';
         this.stopInterval();
         this.notifyTick();
     }
 
     resume(): void {
-        if (this.isRunning) return;
-        if (this.reps === 0) return;
-        if (this.mode !== 'stopwatch' && this.getRemainingMs() <= 0) return;
-        this.isRunning = true;
-        this.startTime = Date.now();
+        if (this.state.status !== 'paused') return;
+        if (this.state.mode !== 'stopwatch' && this.getRemainingMs() <= 0) return;
+
+        this.state.status = 'running';
+        this.state.segmentStartMs = Date.now();
         this.startInterval();
         this.notifyTick();
     }
 
+    stop(): void {
+        if (this.state.status === 'idle') return;
+
+        this.stopInterval();
+
+        const donePhase = this.state.phase;
+        const elapsedSec = this.getElapsedSec();
+        const durationMin = Math.max(1, Math.round(elapsedSec / 60));
+
+        // 保留需要继承的字段
+        const savedCompleted = this.state.completedTomatos;
+        const savedTask = this.state.taskName;
+        const savedProject = this.state.currentProject;
+
+        // 重置为 idle
+        this.state = this.createIdleState(this.state.mode);
+        this.state.completedTomatos = savedCompleted;
+        this.state.taskName = savedTask;
+        this.state.currentProject = savedProject;
+
+        this.notifyTick();
+        this.onPhaseCb?.(donePhase, 'idle', durationMin);
+    }
+
     reset(): void {
         this.stopInterval();
-        this.reps = 0;
-        this.isRunning = false;
-        this.accumulatedMs = 0;
-        this.startTime = 0;
-        this.sessionStartDate = '';
-        this.sessionStartTime = '';
-        this.sessionStartMode = this.mode;
+        this.state = this.createIdleState(this.state.mode);
         this.notifyTick();
+    }
+
+    skip(): void {
+        if (this.state.status === 'idle') return;
+
+        this.stopInterval();
+        const donePhase = this.state.phase;
+        const durationMin = Math.max(1, Math.round(this.getElapsedSec() / 60));
+
+        this.handlePhaseComplete(donePhase, durationMin);
     }
 
     destroy(): void {
@@ -199,145 +295,109 @@ export class TomatoTimer {
         this.onPhaseCb = null;
     }
 
+    // ========== 状态查询 ==========
+
+    getState(): TimerState {
+        const elapsedSec = this.getElapsedSec();
+        const remainingMs = this.getRemainingMs();
+        let totalSec = calcPhaseDuration(this.state.phase, this.settings, this.state.countdownSec);
+
+        // 就绪时显示默认时长
+        if (this.state.status === 'idle') {
+            if (this.state.mode === 'pomodoro') totalSec = this.settings.workMinutes * 60;
+            else if (this.state.mode === 'countdown') totalSec = this.state.countdownSec;
+        }
+
+        return {
+            phase: this.state.phase,
+            mode: this.state.mode,
+            status: this.state.status,
+            remainingSeconds: this.state.mode === 'stopwatch' ? 0 : Math.floor(remainingMs / 1000),
+            elapsedSeconds: elapsedSec,
+            completedTomatos: this.state.completedTomatos,
+            taskName: this.state.taskName,
+            currentProject: this.state.currentProject,
+            totalPhaseSeconds: totalSec,
+        };
+    }
+
+    // ========== 恢复数据 ==========
+
     getRecoveryData(): RecoveryData {
         return {
-            mode: this.mode,
-            phase: this.currentPhase(),
-            isRunning: this.isRunning,
-            startTime: this.startTime,
-            accumulatedMs: this.isRunning
-                ? this.accumulatedMs + (Date.now() - this.startTime)
-                : this.accumulatedMs,
-            taskName: this.taskName,
-            currentProject: this.currentProject,
+            mode: this.state.mode,
+            phase: this.state.phase,
+            status: this.state.status,
+            accumulatedMs: this.state.accumulatedMs + (this.state.status === 'running' ? Date.now() - this.state.segmentStartMs : 0),
+            cycleIndex: this.state.cycleIndex,
+            taskName: this.state.taskName,
+            currentProject: this.state.currentProject,
             lastUpdated: Date.now(),
-            sessionStartDate: this.sessionStartDate,
-            sessionStartTime: this.sessionStartTime,
-            countdownSeconds: this.countdownSeconds,
-            reps: this.reps,
-            completedTomatos: this.completedTomatos,
-            sessionStartMode: this.sessionStartMode,
+            sessionDate: this.state.sessionDate,
+            sessionTime: this.state.sessionTime,
+            countdownSeconds: this.state.countdownSec,
+            completedTomatos: this.state.completedTomatos,
+            sessionStartMode: this.state.sessionMode,
         };
     }
 
     restoreFromRecovery(data: RecoveryData): void {
-        this.mode = data.mode;
-        this.reps = data.reps;
-        this.completedTomatos = data.completedTomatos;
-        this.taskName = data.taskName;
-        this.currentProject = data.currentProject ?? '';
-        this.sessionStartDate = data.sessionStartDate;
-        this.sessionStartTime = data.sessionStartTime;
-        this.sessionStartMode = data.sessionStartMode ?? data.mode;
-        this.countdownSeconds = (typeof data.countdownSeconds === 'number' && data.countdownSeconds > 0)
+        this.state.mode = data.mode;
+        this.state.phase = data.phase;
+        this.state.status = data.status;
+        this.state.cycleIndex = data.cycleIndex;
+        this.state.taskName = data.taskName;
+        this.state.currentProject = data.currentProject ?? '';
+        this.state.sessionDate = data.sessionDate;
+        this.state.sessionTime = data.sessionTime;
+        this.state.sessionMode = data.sessionStartMode ?? data.mode;
+        this.state.countdownSec = (typeof data.countdownSeconds === 'number' && data.countdownSeconds > 0)
             ? data.countdownSeconds
             : this.settings.countdownMinutes * 60;
-        this.accumulatedMs = data.accumulatedMs;
+        this.state.completedTomatos = data.completedTomatos;
+        this.state.accumulatedMs = data.accumulatedMs;
 
-        if (data.isRunning) {
+        if (data.status === 'running') {
             const now = Date.now();
             const delta = now - data.lastUpdated;
-            this.accumulatedMs += delta;
-            this.startTime = now;
+            this.state.accumulatedMs += delta;
+            this.state.segmentStartMs = now;
 
-            // Check if already timed out (skip stopwatch which never times out)
-            if (this.mode !== 'stopwatch') {
-                const total = this.phaseDuration(this.currentPhase()) * 1000;
-                if (this.accumulatedMs >= total) {
-                    // Auto-end: treat as natural completion
-                    this.isRunning = false;
-                    const done = this.currentPhase();
-                    if (done === 'work') this.completedTomatos += 1;
-                    const durationMin = Math.round(this.phaseDuration(done) / 60);
-                    this.handleEnd(done, durationMin);
+            // 检查是否已超时（正计时永不过期）
+            if (this.state.mode !== 'stopwatch') {
+                const total = calcPhaseDuration(this.state.phase, this.settings, this.state.countdownSec) * 1000;
+                if (this.state.accumulatedMs >= total) {
+                    if (data.phase === 'work') this.state.completedTomatos += 1;
+                    this.resetToIdle();
+                    this.notifyTick();
                     return;
                 }
             }
 
-            this.isRunning = true;
             this.startInterval();
         } else {
-            this.isRunning = false;
-            this.startTime = 0;
+            this.state.segmentStartMs = 0;
         }
+
         this.notifyTick();
     }
 
-    skip(): void {
-        if (this.reps === 0) return;
-        this.stopInterval();
-        const done = this.currentPhase();
-        this.isRunning = false;
-        const elapsedSec = Math.floor((this.accumulatedMs + (Date.now() - this.startTime)) / 1000);
-        const durationMin = Math.max(1, Math.round(elapsedSec / 60));
-        this.notifyTick();
-        this.handleEnd(done, durationMin);
+    // ========== 私有方法 ==========
+
+    private getElapsedMs(): number {
+        if (this.state.status === 'idle') return 0;
+        const currentSegment = this.state.status === 'running' ? Date.now() - this.state.segmentStartMs : 0;
+        return this.state.accumulatedMs + currentSegment;
     }
 
-    stop(): void {
-        if (this.reps === 0) return;
-        this.stopInterval();
-        const done = this.currentPhase();
-        this.isRunning = false;
-        this.reps = 0;
-        const elapsedSec = Math.floor((this.accumulatedMs + (Date.now() - this.startTime)) / 1000);
-        const durationMin = Math.max(1, Math.round(elapsedSec / 60));
-        this.accumulatedMs = 0;
-        this.startTime = 0;
-        this.notifyTick();
-        this.onPhaseCb?.(done, 'idle', durationMin);
-    }
-
-    getState(): TimerState {
-        const elapsed = Math.floor((this.accumulatedMs + (this.isRunning ? Date.now() - this.startTime : 0)) / 1000);
-        return {
-            phase: this.currentPhase(),
-            mode: this.mode,
-            reps: this.reps,
-            remainingSeconds: this.mode === 'stopwatch' ? 0 : Math.floor(this.getRemainingMs() / 1000),
-            elapsedSeconds: elapsed,
-            isRunning: this.isRunning,
-            completedTomatos: this.completedTomatos,
-            taskName: this.taskName,
-            currentProject: this.currentProject,
-        };
+    private getElapsedSec(): number {
+        return Math.floor(this.getElapsedMs() / 1000);
     }
 
     private getRemainingMs(): number {
-        const elapsed = this.isRunning ? (Date.now() - this.startTime) : 0;
-        const total = this.phaseDuration(this.currentPhase()) * 1000;
-        return Math.max(0, total - this.accumulatedMs - elapsed);
-    }
-
-    private currentPhase(): PhaseType {
-        if (this.reps === 0) return 'idle';
-        if (this.mode === 'stopwatch') return 'stopwatch';
-        if (this.mode === 'countdown') return 'countdown';
-        if (this.reps % (this.settings.cycles * 2) === 0) return 'longBreak';
-        if (this.reps % 2 === 0) return 'shortBreak';
-        return 'work';
-    }
-
-    private nextPhase(): PhaseType {
-        if (this.mode !== 'pomodoro') return 'idle';
-        const n = this.reps + 1;
-        if (n % (this.settings.cycles * 2) === 0) return 'longBreak';
-        if (n % 2 === 0) return 'shortBreak';
-        return 'work';
-    }
-
-    private phaseDuration(phase: PhaseType): number {
-        switch (phase) {
-            case 'work': return this.settings.workMinutes * 60;
-            case 'shortBreak': return this.settings.shortBreakMinutes * 60;
-            case 'longBreak': return this.settings.longBreakMinutes * 60;
-            case 'countdown': return this.countdownSeconds;
-            case 'idle':
-                if (this.mode === 'countdown') return this.countdownSeconds;
-                if (this.mode === 'pomodoro') return this.settings.workMinutes * 60;
-                return 0;
-            default: return 0;
-        }
+        if (this.state.mode === 'stopwatch') return 0;
+        const total = calcPhaseDuration(this.state.phase, this.settings, this.state.countdownSec) * 1000;
+        return Math.max(0, total - this.getElapsedMs());
     }
 
     private startInterval(): void {
@@ -353,34 +413,56 @@ export class TomatoTimer {
     }
 
     private tick(): void {
-        if (this.mode === 'stopwatch') {
+        if (this.state.mode === 'stopwatch') {
             this.notifyTick();
             return;
         }
+
         if (this.getRemainingMs() <= 0) {
-            const done = this.currentPhase();
+            const donePhase = this.state.phase;
             this.stopInterval();
-            this.isRunning = false;
-            if (done === 'work') this.completedTomatos += 1;
-            const durationMin = Math.round(this.phaseDuration(done) / 60);
-            this.notifyTick();
-            this.handleEnd(done, durationMin);
+            const durationMin = Math.round(calcPhaseDuration(donePhase, this.settings, this.state.countdownSec) / 60);
+            this.handlePhaseComplete(donePhase, durationMin);
         } else {
             this.notifyTick();
         }
     }
 
-    private handleEnd(done: PhaseType, durationMinutes: number): void {
-        if (this.mode === 'stopwatch') {
-            this.onPhaseCb?.(done, 'idle', durationMinutes);
-            this.reps = 0;
+    private handlePhaseComplete(donePhase: PhaseType, durationMinutes: number): void {
+        if (this.state.mode === 'stopwatch') {
+            this.resetToIdle();
+            this.onPhaseCb?.(donePhase, 'idle', durationMinutes);
+            this.notifyTick();
             return;
         }
-        const next = this.nextPhase();
-        this.onPhaseCb?.(done, next, durationMinutes);
-        if (this.settings.autoStartNextPhase && this.mode === 'pomodoro') {
-            this.start();
+
+        if (donePhase === 'work') {
+            this.state.completedTomatos += 1;
         }
+
+        const nextPhase = calcNextPomodoroPhase(this.state.cycleIndex, this.settings.cycles);
+        this.onPhaseCb?.(donePhase, nextPhase, durationMinutes);
+
+        if (this.settings.autoStartNextPhase && this.state.mode === 'pomodoro') {
+            this.state.cycleIndex += 1;
+            this.state.phase = calcPhase('pomodoro', this.state.cycleIndex, this.settings.cycles);
+            this.state.status = 'running';
+            this.state.segmentStartMs = Date.now();
+            this.state.accumulatedMs = 0;
+            this.startInterval();
+            this.notifyTick();
+        } else {
+            this.resetToIdle();
+            this.notifyTick();
+        }
+    }
+
+    private resetToIdle(): void {
+        this.state.status = 'idle';
+        this.state.phase = 'idle';
+        this.state.cycleIndex = 0;
+        this.state.accumulatedMs = 0;
+        this.state.segmentStartMs = 0;
     }
 
     private notifyTick(): void {

@@ -2,7 +2,6 @@
 import { App, TFile, TAbstractFile, FileView } from 'obsidian';
 import { get } from 'svelte/store';
 import {
-    getDailyNoteSettings,
     getDailyNote,
 } from 'obsidian-daily-notes-interface';
 import Calendar from './src/ui/Calendar.svelte';
@@ -27,6 +26,10 @@ import { tryToCreateWeeklyNote } from './src/io/weeklyNotes';
 export interface CalendarEmbedAPI {
     calendar: any;
     destroy(): void;
+    prevMonth(): void;
+    nextMonth(): void;
+    resetMonth(): void;
+    getDisplayedMonth(): moment.Moment;
 }
 
 export function createCalendarEmbed(parent: HTMLElement, app: App): CalendarEmbedAPI {
@@ -35,26 +38,9 @@ export function createCalendarEmbed(parent: HTMLElement, app: App): CalendarEmbe
 
     const onClickDay = async (date: any, inNewSplit: boolean) => {
         const { workspace } = app;
-        const { format } = getDailyNoteSettings()!;
         const note = getDailyNote(date, get(dailyNotes));
 
         if (!note) {
-            if (get(settings).shouldConfirmBeforeCreate) {
-                const createFile = await new Promise<boolean>((res) => {
-                    const { moment } = window as any;
-                    const modal = new (require('obsidian').Modal)(app);
-                    modal.contentEl.createEl('h3', { text: `Create note for ${moment(date).format('YYYY-MM-DD')}?` });
-                    modal.contentEl.createEl('p', { text: 'This note does not exist yet.' });
-                    const btnContainer = modal.contentEl.createDiv();
-                    btnContainer.style.display = 'flex';
-                    btnContainer.style.gap = '8px';
-                    btnContainer.style.marginTop = '12px';
-                    btnContainer.createEl('button', { text: 'Create' }).onclick = () => { modal.close(); res(true); };
-                    btnContainer.createEl('button', { text: 'Cancel' }).onclick = () => { modal.close(); res(false); };
-                    modal.open();
-                });
-                if (!createFile) return;
-            }
             await tryToCreateDailyNote(date, inNewSplit, get(settings));
             return;
         }
@@ -71,22 +57,6 @@ export function createCalendarEmbed(parent: HTMLElement, app: App): CalendarEmbe
         const existingFile = getWeeklyNote(date, get(weeklyNotes));
 
         if (!existingFile) {
-            if (get(settings).shouldConfirmBeforeCreate) {
-                const createFile = await new Promise<boolean>((res) => {
-                    const { moment } = window as any;
-                    const modal = new (require('obsidian').Modal)(app);
-                    modal.contentEl.createEl('h3', { text: `Create weekly note for ${moment(date).format('gggg-[W]ww')}?` });
-                    modal.contentEl.createEl('p', { text: 'This note does not exist yet.' });
-                    const btnContainer = modal.contentEl.createDiv();
-                    btnContainer.style.display = 'flex';
-                    btnContainer.style.gap = '8px';
-                    btnContainer.style.marginTop = '12px';
-                    btnContainer.createEl('button', { text: 'Create' }).onclick = () => { modal.close(); res(true); };
-                    btnContainer.createEl('button', { text: 'Cancel' }).onclick = () => { modal.close(); res(false); };
-                    modal.open();
-                });
-                if (!createFile) return;
-            }
             await tryToCreateWeeklyNote(date, inNewSplit, get(settings));
             return;
         }
@@ -168,7 +138,7 @@ export function createCalendarEmbed(parent: HTMLElement, app: App): CalendarEmbe
     const updateActiveFile = () => {
         const file = app.workspace.getActiveFile();
         if (file instanceof TFile) {
-            activeFile.set(file);
+            activeFile.setFile(file);
         } else {
             activeFile.set(null);
         }
@@ -194,6 +164,18 @@ export function createCalendarEmbed(parent: HTMLElement, app: App): CalendarEmbe
             calendar.$destroy();
             vaultEvents.forEach(({ evt, ref }) => evt.offref(ref));
             wsEvents.forEach(({ evt, ref }) => evt.offref(ref));
+        },
+        prevMonth() {
+            calendar.decrementDisplayedMonth();
+        },
+        nextMonth() {
+            calendar.incrementDisplayedMonth();
+        },
+        resetMonth() {
+            calendar.resetDisplayedMonth();
+        },
+        getDisplayedMonth() {
+            return calendar.displayedMonth;
         },
     };
 }

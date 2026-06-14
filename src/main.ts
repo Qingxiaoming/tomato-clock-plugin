@@ -1,9 +1,11 @@
 import { Notice, Plugin, TFile, normalizePath } from 'obsidian';
-import { TomatoTimer, PhaseType, TimerState } from './timer';
+import { TomatoTimer } from './timer';
+import type { PhaseType, TimerState } from './timer';
 import { TomatoTimerView, VIEW_TYPE_Tomato } from './timerView';
 import { TomatoTimerCompactView, VIEW_TYPE_Tomato_Compact } from './timerViewCompact';
 import { CalendarView, VIEW_TYPE_CALENDAR, settings as calendarSettings } from './calendar-extended';
-import { DEFAULT_SETTINGS, TomatoPluginSettings, TomatoSettingTab } from './settings';
+import { DEFAULT_SETTINGS, TomatoSettingTab } from './settings';
+import type { TomatoPluginSettings } from './settings';
 import { appendEntry, nowTimeString, todayString } from './log';
 import { t, tf } from './i18n';
 import { NotificationService } from './services/notification';
@@ -46,7 +48,7 @@ export default class TomatoPlugin extends Plugin {
 
         // Save recovery on page unload without blocking Obsidian reload
         this.registerDomEvent(window, 'beforeunload', () => {
-            if (this.timer.getState().isRunning) {
+            if (this.timer.getState().status === 'running') {
                 void this.recoveryService.save();
             }
         });
@@ -69,7 +71,7 @@ export default class TomatoPlugin extends Plugin {
         this.statusBarEl.addClass('Tomato-statusbar');
         this.statusBarEl.addClass('Tomato-clickable');
         this.registerDomEvent(this.statusBarEl, 'click', () => this.activateView());
-        this.refreshStatusBar({ phase: 'idle', remainingSeconds: 0, elapsedSeconds: 0, isRunning: false, mode: 'pomodoro' });
+        this.refreshStatusBar(this.timer.getState());
         this.toggleStatusBar();
 
         // Command palette
@@ -79,7 +81,7 @@ export default class TomatoPlugin extends Plugin {
             callback: () => {
                 const s = this.timer.getState();
                 if (s.phase === 'idle') this.timer.start();
-                else if (s.isRunning) this.timer.pause();
+                else if (s.status === 'running') this.timer.pause();
                 else this.timer.resume();
             },
         });
@@ -297,7 +299,7 @@ export default class TomatoPlugin extends Plugin {
         return task;
     }
 
-    private refreshStatusBar(state: Pick<TimerState, 'phase' | 'remainingSeconds' | 'elapsedSeconds' | 'isRunning' | 'mode'>): void {
+    private refreshStatusBar(state: TimerState): void {
         const emoji = phaseEmoji(state.phase);
         if (state.phase === 'idle') {
             this.statusBarEl.setText(`${emoji} --`);
@@ -306,7 +308,7 @@ export default class TomatoPlugin extends Plugin {
         const displaySec = state.mode === 'stopwatch' ? state.elapsedSeconds : state.remainingSeconds;
         const m = String(Math.floor(displaySec / 60)).padStart(2, '0');
         const s = String(displaySec % 60).padStart(2, '0');
-        this.statusBarEl.setText(`${emoji} ${m}:${s}${state.isRunning ? '' : ' ⏸'}`);
+        this.statusBarEl.setText(`${emoji} ${m}:${s}${state.status === 'running' ? '' : ' ⏸'}`);
     }
 
 }

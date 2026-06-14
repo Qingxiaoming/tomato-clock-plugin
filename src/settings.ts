@@ -56,6 +56,8 @@ export interface TomatoPluginSettings {
     compactTimerFontSize: number;
     compactCurrentTimeFontFamily: string;
     compactTimerFontFamily: string;
+    compactDateFontFamilyCn: string;
+    compactDateFontFamilyEn: string;
     calendarExtended: CalendarExtendedSettings;
 }
 
@@ -79,6 +81,8 @@ export const DEFAULT_SETTINGS: TomatoPluginSettings = {
     compactTimerFontSize: 1.8,
     compactCurrentTimeFontFamily: "'Courier New', Courier, monospace",
     compactTimerFontFamily: "'Courier New', Courier, monospace",
+    compactDateFontFamilyCn: "system-ui, -apple-system, sans-serif",
+    compactDateFontFamilyEn: "'Courier New', Courier, monospace",
     calendarExtended: { ...(calendarDefaultSettings as unknown as CalendarExtendedSettings) },
 };
 
@@ -111,10 +115,29 @@ export class TomatoSettingTab extends PluginSettingTab {
                 'Arial', 'Helvetica', 'Times New Roman', 'Georgia',
                 'Courier New', 'Consolas', 'Monaco',
                 'JetBrains Mono', 'Fira Code', 'Inter', 'Roboto', 'system-ui',
-                'Microsoft YaHei', 'SimSun', 'DengXian',
-                'PingFang SC', 'Hiragino Sans GB',
-                'Noto Sans CJK SC', 'Source Han Sans SC',
             ];
+        }
+
+        // Always include common Chinese fonts
+        const cnFonts = [
+            'Microsoft YaHei', '微软雅黑',
+            'SimSun', '宋体',
+            'SimHei', '黑体',
+            'DengXian', '等线',
+            'KaiTi', '楷体',
+            'FangSong', '仿宋',
+            'PingFang SC', '苹方',
+            'Hiragino Sans GB', '冬青黑体',
+            'Noto Sans CJK SC', '思源黑体',
+            'Source Han Sans SC', '思源黑体 SC',
+            'LXGW WenKai', '霞鹜文楷',
+            'Smiley Sans', '得意黑',
+            'HarmonyOS Sans', '鸿蒙字体',
+        ];
+        for (const f of cnFonts) {
+            if (!fonts.includes(f)) {
+                fonts.push(f);
+            }
         }
 
         if (!fonts.includes(currentValue)) {
@@ -357,6 +380,35 @@ export class TomatoSettingTab extends PluginSettingTab {
             });
         });
         void this.loadSystemFonts(timerFontDropdown!, this.plugin.settings.compactTimerFontFamily);
+
+        // Date area: separate Chinese / English fonts
+        const dateCnFontSetting = new Setting(containerEl)
+            .setName('日期区域中文字体')
+            .setDesc('日期行中文内容（如星期几）使用的字体');
+        let dateCnFontDropdown: DropdownComponent;
+        dateCnFontSetting.addDropdown(d => {
+            dateCnFontDropdown = d;
+            d.onChange(async v => {
+                this.plugin.settings.compactDateFontFamilyCn = v;
+                await this.plugin.saveSettings();
+                this.plugin.refreshAllViews();
+            });
+        });
+        void this.loadSystemFonts(dateCnFontDropdown!, this.plugin.settings.compactDateFontFamilyCn);
+
+        const dateEnFontSetting = new Setting(containerEl)
+            .setName('日期区域英文字体')
+            .setDesc('日期行英文/数字内容（如时间、年、月）使用的字体');
+        let dateEnFontDropdown: DropdownComponent;
+        dateEnFontSetting.addDropdown(d => {
+            dateEnFontDropdown = d;
+            d.onChange(async v => {
+                this.plugin.settings.compactDateFontFamilyEn = v;
+                await this.plugin.saveSettings();
+                this.plugin.refreshAllViews();
+            });
+        });
+        void this.loadSystemFonts(dateEnFontDropdown!, this.plugin.settings.compactDateFontFamilyEn);
 
         // --- Log ---
         new Setting(containerEl).setHeading().setName(_t('settings.log'));

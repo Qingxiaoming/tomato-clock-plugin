@@ -109,6 +109,24 @@
     user-select: none;
 }
 
+/* Prevent any section from being squished by panel height */
+.Tomato-compact-container>* {
+    flex-shrink: 0;
+}
+
+/* Hide scrollbar on compact panel and its scrollable parents */
+.Tomato-compact-container::-webkit-scrollbar,
+.view-content.Tomato-timer-compact-view::-webkit-scrollbar {
+    display: none;
+}
+
+.Tomato-compact-container,
+.view-content.Tomato-timer-compact-view {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    overflow: hidden;
+}
+
 .Tomato-compact-task-input {
     width: 100%;
     padding: 3px 6px;
@@ -125,20 +143,91 @@
     border-color: var(--interactive-accent);
 }
 
-/* Current time row: time | mode switch */
+/* Current time row: time | month | year | mode switch */
 .Tomato-compact-current-row {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
+    /* align bottom so vertical lines match height */
     justify-content: space-between;
     gap: 6px;
 }
 
 .Tomato-compact-current-time {
-    font-family: var(--tomato-compact-current-time-font-family, 'Courier New', Courier, monospace);
+    font-family: var(--tomato-compact-date-font-en, 'Courier New', Courier, monospace);
     font-size: var(--tomato-compact-current-time-font-size, 1.7rem);
     font-weight: 600;
     color: var(--text-normal);
     line-height: 1;
+}
+
+.Tomato-compact-date-group {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex: 1;
+}
+
+/* Each date component: label + dot at top-right */
+.Tomato-compact-date-section {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    position: relative;
+}
+
+.Tomato-compact-date-label {
+    font-family: var(--tomato-compact-date-font-en, 'Courier New', Courier, monospace);
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-normal);
+    line-height: 1;
+}
+
+/* Weekday label uses Chinese font */
+.Tomato-compact-week-label {
+    font-family: var(--tomato-compact-date-font-cn, system-ui, -apple-system, sans-serif) !important;
+}
+
+/* Dot indicator - positioned at top-right of the section */
+.Tomato-compact-section-indicator {
+    position: absolute;
+    top: -2px;
+    right: -6px;
+}
+
+.Tomato-compact-vline {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+}
+
+.Tomato-compact-vline-solid {
+    background-color: var(--text-muted);
+}
+
+.Tomato-compact-vline-hollow {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    border: 1px solid #fff;
+    background-color: transparent;
+}
+
+.Tomato-compact-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    transition: opacity 0.15s;
+}
+
+.Tomato-compact-dot-solid {
+    background-color: var(--text-muted);
+    opacity: 0.15;
+}
+
+.Tomato-compact-dot-hollow {
+    border: 1.5px solid var(--text-muted);
+    opacity: 0.15;
 }
 
 /* Today timeline */
@@ -1074,9 +1163,7 @@
    Embedded Calendar (compact panel)
    ===================================================== */
 .Tomato-compact-calendar-embed {
-    margin-top: 6px;
-    padding-top: 4px;
-    border-top: 1px solid var(--background-modifier-border);
+    /* margin/padding/border moved to wrapper */
 }
 
 .Tomato-compact-calendar-embed .workspace-tab-header-container {
@@ -1090,4 +1177,51 @@
 
 .Tomato-compact-calendar-embed .workspace-leaf-content {
     padding: 0;
+}
+
+/* Hide calendar native nav (title + arrows) */
+.Tomato-compact-calendar-embed #calendar-container .nav {
+    display: none !important;
+}
+
+/* Hide calendar weekday header (W 周一 周二... row) */
+.Tomato-compact-calendar-embed #calendar-container table thead {
+    display: none !important;
+}
+
+/* Calendar wrapper: left-arrow | calendar | right-arrow, same row, equal height */
+.Tomato-compact-cal-wrapper {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0px;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.Tomato-compact-cal-wrapper .Tomato-compact-calendar-embed {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Reduce calendar internal padding */
+.Tomato-compact-calendar-embed #calendar-container {
+    padding: 0 1px;
+}
+
+/* Arrow buttons */
+.Tomato-compact-cal-arrow {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0 1px;
+    font-size: 0.9rem;
+    transition: color 0.15s;
+    align-self: center;
+}
+
+.Tomato-compact-cal-arrow:hover {
+    color: var(--text-normal);
 }

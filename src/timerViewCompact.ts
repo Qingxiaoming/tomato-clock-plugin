@@ -1,10 +1,21 @@
-import { ItemView, WorkspaceLeaf, setIcon, Menu } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon, Menu, TFile } from 'obsidian';
+import { get } from 'svelte/store';
+import { getDailyNote } from 'obsidian-daily-notes-interface';
 import type TomatoPlugin from './main';
 import type { TimerState, PhaseType, TimerMode } from './timer';
 import { getDayMinutes, todayString, parseDayFile, timeToMinutes } from './log';
 import { projectColor } from './utils';
-import { CalendarEmbedAPI, createCalendarEmbed } from './calendar-extended';
-
+import type { CalendarEmbedAPI } from './calendar-extended';
+import { createCalendarEmbed } from './calendar-extended';
+import {
+    dailyNotes,
+    monthlyNotes,
+    yearlyNotes,
+    weeklyNotes,
+    getMonthlyNote,
+    getYearlyNote,
+    getWeeklyNote,
+} from './calendar-extended/src/ui/stores';
 export const VIEW_TYPE_Tomato_Compact = 'Tomato-timer-compact-view';
 
 export class TomatoTimerCompactView extends ItemView {
@@ -31,10 +42,17 @@ export class TomatoTimerCompactView extends ItemView {
     private cachedTimerFontSizeVar = '';
     private cachedCurrentFontFamily = '';
     private cachedTimerFontFamily = '';
+    private cachedDateCnFontFamily = '';
     private cachedDataPhase = '';
     private cachedDotDisplay = '';
     private cachedTimelineHash = '';
     private calendarEmbed?: CalendarEmbedAPI;
+    private dateDisplayEl!: HTMLElement;
+    private dayDotEl!: HTMLElement;
+    private monthDotEl!: HTMLElement;
+    private yearDotEl!: HTMLElement;
+    private weekDotEl!: HTMLElement;
+    private calendarNavEl!: HTMLElement;
 
     private static readonly MODE_ICONS: Record<TimerMode, string> = {
         pomodoro: 'target',
@@ -84,7 +102,8 @@ export class TomatoTimerCompactView extends ItemView {
         root.addClass('Tomato-compact-container');
         root.style.setProperty('--tomato-compact-current-time-font-size', `${this.plugin.settings.compactCurrentTimeFontSize}rem`);
         root.style.setProperty('--tomato-compact-timer-font-size', `${this.plugin.settings.compactTimerFontSize}rem`);
-        root.style.setProperty('--tomato-compact-current-time-font-family', this.plugin.settings.compactCurrentTimeFontFamily);
+        root.style.setProperty('--tomato-compact-date-font-en', this.plugin.settings.compactCurrentTimeFontFamily);
+        root.style.setProperty('--tomato-compact-date-font-cn', this.plugin.settings.compactDateFontFamilyCn);
         root.style.setProperty('--tomato-compact-timer-font-family', this.plugin.settings.compactTimerFontFamily);
 
         /* ── Top: project select + task input ── */
@@ -103,9 +122,69 @@ export class TomatoTimerCompactView extends ItemView {
             this.plugin.timer.setTaskName(this.taskInput.value);
         });
 
-        /* ── Current time row: time | mode switch ── */
+        /* ── Current time row: time | year | month | day | week | mode switch ── */
         const currentRow = root.createDiv({ cls: 'Tomato-compact-current-row' });
-        this.currentTimeEl = currentRow.createDiv({ cls: 'Tomato-compact-current-time', text: '--:--' });
+
+        const dateGroup = currentRow.createDiv({ cls: 'Tomato-compact-date-group' });
+
+        // Time display only (no click operation)
+        this.currentTimeEl = dateGroup.createDiv({ cls: 'Tomato-compact-current-time', text: '--:--' });
+
+        // Year section
+        const yearSection = dateGroup.createDiv({ cls: 'Tomato-compact-date-section' });
+        const yearLabel = yearSection.createDiv({ cls: 'Tomato-compact-date-label Tomato-compact-year-label', text: '' });
+        yearLabel.style.cursor = 'pointer';
+        yearLabel.addEventListener('click', () => {
+            const m = window.moment();
+            const note = getYearlyNote(m, get(yearlyNotes));
+            if (note) {
+                void this.app.workspace.getLeaf().openFile(note);
+            }
+        });
+        const yearIndicator = yearSection.createDiv({ cls: 'Tomato-compact-section-indicator' });
+        this.yearDotEl = yearIndicator.createDiv({ cls: 'Tomato-compact-vline Tomato-compact-vline-hollow' });
+
+        // Month section
+        const monthSection = dateGroup.createDiv({ cls: 'Tomato-compact-date-section' });
+        const monthLabel = monthSection.createDiv({ cls: 'Tomato-compact-date-label Tomato-compact-month-label', text: '' });
+        monthLabel.style.cursor = 'pointer';
+        monthLabel.addEventListener('click', () => {
+            const m = window.moment();
+            const note = getMonthlyNote(m, get(monthlyNotes));
+            if (note) {
+                void this.app.workspace.getLeaf().openFile(note);
+            }
+        });
+        const monthIndicator = monthSection.createDiv({ cls: 'Tomato-compact-section-indicator' });
+        this.monthDotEl = monthIndicator.createDiv({ cls: 'Tomato-compact-vline Tomato-compact-vline-hollow' });
+
+        // Day section
+        const daySection = dateGroup.createDiv({ cls: 'Tomato-compact-date-section' });
+        const dayLabel = daySection.createDiv({ cls: 'Tomato-compact-date-label Tomato-compact-day-label', text: '' });
+        dayLabel.style.cursor = 'pointer';
+        dayLabel.addEventListener('click', () => {
+            const todayMoment = window.moment();
+            const note = getDailyNote(todayMoment, get(dailyNotes));
+            if (note) {
+                void this.app.workspace.getLeaf().openFile(note);
+            }
+        });
+        const dayIndicator = daySection.createDiv({ cls: 'Tomato-compact-section-indicator' });
+        this.dayDotEl = dayIndicator.createDiv({ cls: 'Tomato-compact-vline Tomato-compact-vline-hollow' });
+
+        // Week section (weekday)
+        const weekSection = dateGroup.createDiv({ cls: 'Tomato-compact-date-section' });
+        const weekLabel = weekSection.createDiv({ cls: 'Tomato-compact-date-label Tomato-compact-week-label', text: '周一' });
+        weekLabel.style.cursor = 'pointer';
+        weekLabel.addEventListener('click', () => {
+            const m = window.moment();
+            const note = getWeeklyNote(m, get(weeklyNotes));
+            if (note) {
+                void this.app.workspace.getLeaf().openFile(note);
+            }
+        });
+        const weekIndicator = weekSection.createDiv({ cls: 'Tomato-compact-section-indicator' });
+        this.weekDotEl = weekIndicator.createDiv({ cls: 'Tomato-compact-vline Tomato-compact-vline-hollow' });
 
         this.modeBtn = currentRow.createEl('button', {
             cls: 'Tomato-compact-mode-btn Tomato-compact-mode-toggle',
@@ -156,13 +235,89 @@ export class TomatoTimerCompactView extends ItemView {
         this.statusTextEl = infoRow.createDiv({ cls: 'Tomato-compact-status', text: this.plugin.t('panel.status.ready') });
         this.todayMinutesEl = infoRow.createDiv({ cls: 'Tomato-compact-today', text: '' });
 
-        /* ── Calendar (embedded) ── */
-        this.calendarEmbed = createCalendarEmbed(root, this.app);
+        /* ── Calendar with side arrows (same row) ── */
+        const calWrapper = root.createDiv({ cls: 'Tomato-compact-cal-wrapper' });
+        const leftArrow = calWrapper.createEl('button', { cls: 'Tomato-compact-cal-arrow Tomato-compact-cal-arrow-left' });
+        setIcon(leftArrow, 'chevron-left');
+        leftArrow.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.calendarEmbed?.prevMonth();
+        });
+
+        this.calendarEmbed = createCalendarEmbed(calWrapper, this.app);
+
+        const rightArrow = calWrapper.createEl('button', { cls: 'Tomato-compact-cal-arrow Tomato-compact-cal-arrow-right' });
+        setIcon(rightArrow, 'chevron-right');
+        rightArrow.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.calendarEmbed?.nextMonth();
+        });
     }
 
     private updateCurrentTime(): void {
         const now = new Date();
         this.currentTimeEl.setText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+
+        const monthLabel = this.contentEl.querySelector('.Tomato-compact-month-label') as HTMLElement | null;
+        const yearLabel = this.contentEl.querySelector('.Tomato-compact-year-label') as HTMLElement | null;
+        const dayLabel = this.contentEl.querySelector('.Tomato-compact-day-label') as HTMLElement | null;
+        const weekLabel = this.contentEl.querySelector('.Tomato-compact-week-label') as HTMLElement | null;
+
+        if (monthLabel) monthLabel.setText(`${now.getMonth() + 1}`);
+        if (yearLabel) yearLabel.setText(`${now.getFullYear()}`);
+        if (dayLabel) dayLabel.setText(`${now.getDate()}`);
+        if (weekLabel) {
+            const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+            weekLabel.setText(weekdays[now.getDay()]);
+        }
+
+        void this.updateDateDots(now);
+    }
+
+    private async updateDateDots(now: Date): Promise<void> {
+        const m = window.moment(now);
+
+        const dailyNote = getDailyNote(m, get(dailyNotes));
+        this.updateDotPair(this.dayDotEl, dailyNote);
+
+        const monthlyNote = getMonthlyNote(m, get(monthlyNotes));
+        this.updateDotPair(this.monthDotEl, monthlyNote);
+
+        const yearlyNote = getYearlyNote(m, get(yearlyNotes));
+        this.updateDotPair(this.yearDotEl, yearlyNote);
+
+        const weeklyNote = getWeeklyNote(m, get(weeklyNotes));
+        this.updateDotPair(this.weekDotEl, weeklyNote);
+    }
+
+    private updateDotPair(dotEl: HTMLElement, note: TFile | null): void {
+        // 无文件 → 隐藏
+        if (!note) {
+            dotEl.style.display = 'none';
+            return;
+        }
+
+        // 有文件，默认白色实心圆点（无待办）
+        dotEl.style.display = '';
+        dotEl.style.backgroundColor = '#fff';
+        dotEl.style.border = 'none';
+
+        // 检查待办，有则改为空心圆点
+        void this.checkNoteTasks(note).then((hasTasks) => {
+            if (hasTasks) {
+                dotEl.style.backgroundColor = 'transparent';
+                dotEl.style.border = '1.5px solid #fff';
+            }
+        });
+    }
+
+    private async checkNoteTasks(note: TFile): Promise<boolean> {
+        try {
+            const contents = await this.app.vault.cachedRead(note);
+            return /(-|\*) \[ \]/.test(contents);
+        } catch {
+            return false;
+        }
     }
 
     private onTimerContextMenu(evt: MouseEvent): void {
@@ -170,38 +325,25 @@ export class TomatoTimerCompactView extends ItemView {
         const mode = state.mode;
 
         if (mode === 'stopwatch') return;
-
-        if (mode === 'pomodoro') {
-            if (state.phase === 'idle') return;
-            const menu = new Menu();
-            menu.addItem((item) => {
-                item.setTitle(this.plugin.t('panel.btn.stop'))
-                    .setIcon('square')
-                    .onClick(() => this.plugin.timer.stop());
-            });
-            menu.showAtMouseEvent(evt);
+        if (state.status === 'idle') {
+            if (mode === 'countdown') this.showCountdownInlineEdit();
             return;
         }
 
+        const menu = new Menu();
+        menu.addItem((item) => {
+            item.setTitle(this.plugin.t('panel.btn.stop'))
+                .setIcon('square')
+                .onClick(() => this.plugin.timer.stop());
+        });
         if (mode === 'countdown') {
-            if (state.reps === 0) {
-                this.showCountdownInlineEdit();
-                return;
-            }
-            const menu = new Menu();
-            menu.addItem((item) => {
-                item.setTitle(this.plugin.t('panel.btn.stop'))
-                    .setIcon('square')
-                    .onClick(() => this.plugin.timer.stop());
-            });
             menu.addItem((item) => {
                 item.setTitle(this.plugin.t('panel.btn.reset'))
                     .setIcon('rotate-ccw')
                     .onClick(() => this.plugin.timer.reset());
             });
-            menu.showAtMouseEvent(evt);
-            return;
         }
+        menu.showAtMouseEvent(evt);
     }
 
     private parseCountdownInput(value: string): number {
@@ -290,11 +432,9 @@ export class TomatoTimerCompactView extends ItemView {
             return;
         }
         const mode = this.plugin.timer.getMode();
-        if (mode === 'pomodoro') {
-            this.plugin.timer.skip();
-        } else if (mode === 'countdown') {
+        if (mode === 'countdown') {
             this.plugin.timer.reset();
-        } else if (mode === 'stopwatch') {
+        } else {
             this.plugin.timer.skip();
         }
     }
@@ -313,14 +453,20 @@ export class TomatoTimerCompactView extends ItemView {
         }
         if (this.cachedCurrentFontFamily !== this.plugin.settings.compactCurrentTimeFontFamily) {
             this.cachedCurrentFontFamily = this.plugin.settings.compactCurrentTimeFontFamily;
-            this.contentEl.style.setProperty('--tomato-compact-current-time-font-family', this.plugin.settings.compactCurrentTimeFontFamily);
+            this.contentEl.style.setProperty('--tomato-compact-date-font-en', this.plugin.settings.compactCurrentTimeFontFamily);
         }
         if (this.cachedTimerFontFamily !== this.plugin.settings.compactTimerFontFamily) {
             this.cachedTimerFontFamily = this.plugin.settings.compactTimerFontFamily;
             this.contentEl.style.setProperty('--tomato-compact-timer-font-family', this.plugin.settings.compactTimerFontFamily);
         }
+        if (this.cachedDateCnFontFamily !== this.plugin.settings.compactDateFontFamilyCn) {
+            this.cachedDateCnFontFamily = this.plugin.settings.compactDateFontFamilyCn;
+            this.contentEl.style.setProperty('--tomato-compact-date-font-cn', this.plugin.settings.compactDateFontFamilyCn);
+        }
 
-        const displaySeconds = state.mode === 'stopwatch' ? state.elapsedSeconds : state.remainingSeconds;
+        const displaySeconds = state.mode === 'stopwatch'
+            ? state.elapsedSeconds
+            : (state.status === 'idle' ? state.totalPhaseSeconds : state.remainingSeconds);
         const timeText = this.fmtTime(displaySeconds);
         if (this.timerDisplayEl.getText() !== timeText) {
             this.timerDisplayEl.setText(timeText);
@@ -379,7 +525,7 @@ export class TomatoTimerCompactView extends ItemView {
             const doneInCycle = state.completedTomatos % this.plugin.settings.cycles;
             this.phaseDotEls.forEach((dot, i) => {
                 dot.toggleClass('completed', i < doneInCycle);
-                dot.toggleClass('active', state.phase === 'work' && state.isRunning && i === doneInCycle);
+                dot.toggleClass('active', state.phase === 'work' && state.status === 'running' && i === doneInCycle);
             });
         } else {
             this.phaseDotEls.forEach(dot => {

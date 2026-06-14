@@ -39,7 +39,7 @@ export class RecoveryService {
         try {
             const raw = await this.plugin.app.vault.adapter.read(this.recoveryPath);
             const data = JSON.parse(raw) as RecoveryData;
-            if (data && typeof data.isRunning === 'boolean') {
+            if (data && data.status) {
                 this.plugin.timer.restoreFromRecovery(data);
             }
         } catch {

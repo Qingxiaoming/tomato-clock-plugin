@@ -665,7 +665,7 @@ export class TomatoTimerView extends ItemView {
     }
 
     private renderOngoingBar(col: HTMLElement, date: string): void {
-        if (!this.plugin.timer.getState().isRunning || date !== this.plugin.timer.getSessionStartDate()) return;
+        if (this.plugin.timer.getState().status !== 'running' || date !== this.plugin.timer.getSessionStartDate()) return;
 
         const sessionTime = this.plugin.timer.getSessionStartTime();
         const startMin = timeToMinutes(sessionTime);
@@ -813,7 +813,7 @@ export class TomatoTimerView extends ItemView {
             this.currentLineLabel.style.top = `${(min / 1440) * 100}%`;
             this.currentLineLabel.setText(`${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`);
         }
-        if (this.ongoingBarEl?.isConnected && this.plugin.timer.getState().isRunning && !this.isDraggingOngoing) {
+        if (this.ongoingBarEl?.isConnected && this.plugin.timer.getState().status === 'running' && !this.isDraggingOngoing) {
             const startMin = timeToMinutes(this.plugin.timer.getSessionStartTime());
             let duration: number;
             if (min >= startMin) {
