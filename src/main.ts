@@ -2,6 +2,7 @@ import { Notice, Plugin, TFile, normalizePath } from 'obsidian';
 import { TomatoTimer, PhaseType, TimerState } from './timer';
 import { TomatoTimerView, VIEW_TYPE_Tomato } from './timerView';
 import { TomatoTimerCompactView, VIEW_TYPE_Tomato_Compact } from './timerViewCompact';
+import { CalendarView, VIEW_TYPE_CALENDAR, settings as calendarSettings } from './calendar-extended';
 import { DEFAULT_SETTINGS, TomatoPluginSettings, TomatoSettingTab } from './settings';
 import { appendEntry, nowTimeString, todayString } from './log';
 import { t, tf } from './i18n';
@@ -58,6 +59,7 @@ export default class TomatoPlugin extends Plugin {
         // Register views
         this.registerView(VIEW_TYPE_Tomato, leaf => new TomatoTimerView(leaf, this));
         this.registerView(VIEW_TYPE_Tomato_Compact, leaf => new TomatoTimerCompactView(leaf, this));
+        this.registerView(VIEW_TYPE_CALENDAR, leaf => new (CalendarView as any)(leaf));
 
         // Ribbon button — opens compact panel by default
         this.addRibbonIcon('timer', this.t('panel.title'), () => { void this.activateView(); });
@@ -127,7 +129,30 @@ export default class TomatoPlugin extends Plugin {
     }
 
     async loadSettings(): Promise<void> {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<TomatoPluginSettings>);
+        const loaded = await this.loadData() as Partial<TomatoPluginSettings> | null;
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+
+        // Migrate calendar-extended settings if not yet merged
+        if (!loaded?.calendarExtended) {
+            try {
+                const legacyPath = `${this.app.vault.configDir}/plugins/calendar-extended/data.json`;
+                const legacyData = await this.app.vault.adapter.read(legacyPath);
+                const legacyOptions = JSON.parse(legacyData);
+                if (legacyOptions && typeof legacyOptions === 'object') {
+                    this.settings.calendarExtended = Object.assign(
+                        {},
+                        DEFAULT_SETTINGS.calendarExtended,
+                        legacyOptions
+                    );
+                    await this.saveSettings();
+                }
+            } catch {
+                // ignore: file doesn't exist or parse error
+            }
+        }
+
+        // Sync calendar settings into calendar-extended store
+        calendarSettings.set(this.settings.calendarExtended);
     }
 
     async saveSettings(): Promise<void> {

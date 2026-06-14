@@ -1,16 +1,16 @@
 {
   "mode": "pomodoro",
-  "phase": "idle",
-  "isRunning": false,
-  "startTime": 0,
-  "accumulatedMs": 0,
+  "phase": "longBreak",
+  "isRunning": true,
+  "startTime": 1781402347850,
+  "accumulatedMs": 521482,
   "taskName": "",
-  "currentProject": "",
-  "lastUpdated": 1781392988485,
-  "sessionStartDate": "",
-  "sessionStartTime": "",
-  "countdownSeconds": 162000,
-  "reps": 0,
-  "completedTomatos": 0,
-  "sessionStartMode": "countdown"
+  "currentProject": "兴趣",
+  "lastUpdated": 1781402797851,
+  "sessionStartDate": "2026-06-14",
+  "sessionStartTime": "09:57",
+  "countdownSeconds": 1500,
+  "reps": 24,
+  "completedTomatos": 5,
+  "sessionStartMode": "pomodoro"
 }

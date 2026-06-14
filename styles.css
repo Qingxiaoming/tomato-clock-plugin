@@ -367,8 +367,39 @@
 
 
 /* =====================================================
-   Tabs
+   Settings tabs
    ===================================================== */
+.Tomato-settings-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.Tomato-settings-tab {
+    padding: 6px 14px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.Tomato-settings-tab:hover {
+    color: var(--text-normal);
+}
+
+.Tomato-settings-tab.active {
+    color: var(--text-normal);
+    border-bottom-color: var(--interactive-accent);
+    font-weight: 600;
+}
+
+.Tomato-settings-tab-content {
+    padding-top: 4px;
+}
 
 
 
@@ -1037,4 +1068,26 @@
     padding: 40px;
     color: var(--text-faint);
     font-size: 0.9rem;
+}
+
+/* =====================================================
+   Embedded Calendar (compact panel)
+   ===================================================== */
+.Tomato-compact-calendar-embed {
+    margin-top: 6px;
+    padding-top: 4px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.Tomato-compact-calendar-embed .workspace-tab-header-container {
+    display: none !important;
+}
+
+.Tomato-compact-calendar-embed .workspace-leaf {
+    background: transparent;
+    border: none;
+}
+
+.Tomato-compact-calendar-embed .workspace-leaf-content {
+    padding: 0;
 }

@@ -9,14 +9,21 @@
         "noImplicitAny": true,
         "noImplicitThis": true,
         "noImplicitReturns": true,
-        "moduleResolution": "node",
+        "moduleResolution": "bundler",
         "importHelpers": true,
         "isolatedModules": true,
         "strictNullChecks": true,
         "strictBindCallApply": true,
         "allowSyntheticDefaultImports": true,
         "useUnknownInCatchVariables": true,
-        "lib": ["DOM", "ES5", "ES6", "ES7"]
+        "lib": [
+            "DOM",
+            "ES5",
+            "ES6",
+            "ES7"
+        ]
     },
-    "include": ["src/**/*.ts"]
+    "include": [
+        "src/**/*.ts"
+    ]
 }

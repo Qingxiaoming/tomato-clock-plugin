@@ -3,6 +3,7 @@ import type TomatoPlugin from './main';
 import type { TimerState, PhaseType, TimerMode } from './timer';
 import { getDayMinutes, todayString, parseDayFile, timeToMinutes } from './log';
 import { projectColor } from './utils';
+import { CalendarEmbedAPI, createCalendarEmbed } from './calendar-extended';
 
 export const VIEW_TYPE_Tomato_Compact = 'Tomato-timer-compact-view';
 
@@ -33,6 +34,7 @@ export class TomatoTimerCompactView extends ItemView {
     private cachedDataPhase = '';
     private cachedDotDisplay = '';
     private cachedTimelineHash = '';
+    private calendarEmbed?: CalendarEmbedAPI;
 
     private static readonly MODE_ICONS: Record<TimerMode, string> = {
         pomodoro: 'target',
@@ -67,6 +69,10 @@ export class TomatoTimerCompactView extends ItemView {
         if (this.currentTimeInterval) {
             clearInterval(this.currentTimeInterval);
             this.currentTimeInterval = undefined;
+        }
+        if (this.calendarEmbed) {
+            this.calendarEmbed.destroy();
+            this.calendarEmbed = undefined;
         }
     }
 
@@ -149,6 +155,9 @@ export class TomatoTimerCompactView extends ItemView {
         const infoRow = root.createDiv({ cls: 'Tomato-compact-info-row' });
         this.statusTextEl = infoRow.createDiv({ cls: 'Tomato-compact-status', text: this.plugin.t('panel.status.ready') });
         this.todayMinutesEl = infoRow.createDiv({ cls: 'Tomato-compact-today', text: '' });
+
+        /* ── Calendar (embedded) ── */
+        this.calendarEmbed = createCalendarEmbed(root, this.app);
     }
 
     private updateCurrentTime(): void {

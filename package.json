@@ -16,6 +16,11 @@
         "typescript": "^5.8.3"
     },
     "dependencies": {
-        "obsidian": "latest"
+        "esbuild-svelte": "^0.9.5",
+        "obsidian": "latest",
+        "obsidian-calendar-ui": "0.3.12",
+        "obsidian-daily-notes-interface": "^0.9.5",
+        "svelte": "^4.2.19",
+        "svelte-preprocess": "^6.0.5"
     }
 }
