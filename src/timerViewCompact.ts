@@ -177,15 +177,29 @@ export class TomatoTimerCompactView extends ItemView {
             menu.addItem((item) => {
                 item.setTitle(this.plugin.t('panel.btn.stop'))
                     .setIcon('square')
-                    .onClick(() => this.plugin.timer.skip());
+                    .onClick(() => this.plugin.timer.stop());
             });
             menu.showAtMouseEvent(evt);
             return;
         }
 
         if (mode === 'countdown') {
-            evt.preventDefault();
-            this.showCountdownInlineEdit();
+            if (state.reps === 0) {
+                this.showCountdownInlineEdit();
+                return;
+            }
+            const menu = new Menu();
+            menu.addItem((item) => {
+                item.setTitle(this.plugin.t('panel.btn.stop'))
+                    .setIcon('square')
+                    .onClick(() => this.plugin.timer.stop());
+            });
+            menu.addItem((item) => {
+                item.setTitle(this.plugin.t('panel.btn.reset'))
+                    .setIcon('rotate-ccw')
+                    .onClick(() => this.plugin.timer.reset());
+            });
+            menu.showAtMouseEvent(evt);
             return;
         }
     }

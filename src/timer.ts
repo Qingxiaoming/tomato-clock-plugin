@@ -274,6 +274,20 @@ export class TomatoTimer {
         this.handleEnd(done, durationMin);
     }
 
+    stop(): void {
+        if (this.reps === 0) return;
+        this.stopInterval();
+        const done = this.currentPhase();
+        this.isRunning = false;
+        this.reps = 0;
+        const elapsedSec = Math.floor((this.accumulatedMs + (Date.now() - this.startTime)) / 1000);
+        const durationMin = Math.max(1, Math.round(elapsedSec / 60));
+        this.accumulatedMs = 0;
+        this.startTime = 0;
+        this.notifyTick();
+        this.onPhaseCb?.(done, 'idle', durationMin);
+    }
+
     getState(): TimerState {
         const elapsed = Math.floor((this.accumulatedMs + (this.isRunning ? Date.now() - this.startTime : 0)) / 1000);
         return {
@@ -296,9 +310,9 @@ export class TomatoTimer {
     }
 
     private currentPhase(): PhaseType {
+        if (this.reps === 0) return 'idle';
         if (this.mode === 'stopwatch') return 'stopwatch';
         if (this.mode === 'countdown') return 'countdown';
-        if (this.reps === 0) return 'idle';
         if (this.reps % (this.settings.cycles * 2) === 0) return 'longBreak';
         if (this.reps % 2 === 0) return 'shortBreak';
         return 'work';
@@ -318,6 +332,10 @@ export class TomatoTimer {
             case 'shortBreak': return this.settings.shortBreakMinutes * 60;
             case 'longBreak': return this.settings.longBreakMinutes * 60;
             case 'countdown': return this.countdownSeconds;
+            case 'idle':
+                if (this.mode === 'countdown') return this.countdownSeconds;
+                if (this.mode === 'pomodoro') return this.settings.workMinutes * 60;
+                return 0;
             default: return 0;
         }
     }
