@@ -1,16 +1,16 @@
 {
   "mode": "pomodoro",
-  "phase": "longBreak",
+  "phase": "work",
   "isRunning": true,
-  "startTime": 1781402347850,
-  "accumulatedMs": 521482,
+  "startTime": 1781403176877,
+  "accumulatedMs": 930974,
   "taskName": "",
   "currentProject": "兴趣",
-  "lastUpdated": 1781402797851,
+  "lastUpdated": 1781404107851,
   "sessionStartDate": "2026-06-14",
-  "sessionStartTime": "09:57",
+  "sessionStartTime": "10:12",
   "countdownSeconds": 1500,
-  "reps": 24,
+  "reps": 25,
   "completedTomatos": 5,
   "sessionStartMode": "pomodoro"
 }

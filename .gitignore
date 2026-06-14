@@ -22,3 +22,6 @@ data.json
 .DS_Store
 
 AGENTS.md
+
+# runtime recovery state
+recovery.json
