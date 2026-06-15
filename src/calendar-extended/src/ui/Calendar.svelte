@@ -55,6 +55,10 @@
 		displayedMonth = today.clone();
 	}
 
+	export function getDisplayedMonth() {
+		return displayedMonth;
+	}
+
 	function getToday(settings: ISettings) {
 		configureGlobalMomentLocale(
 			settings.localeOverride,

@@ -1,4 +1,5 @@
 import { ItemView, WorkspaceLeaf, setIcon, Menu, TFile } from 'obsidian';
+import type { Moment } from 'moment';
 import { get } from 'svelte/store';
 import { getDailyNote } from 'obsidian-daily-notes-interface';
 import type TomatoPlugin from './main';
@@ -47,12 +48,11 @@ export class TomatoTimerCompactView extends ItemView {
     private cachedDotDisplay = '';
     private cachedTimelineHash = '';
     private calendarEmbed?: CalendarEmbedAPI;
-    private dateDisplayEl!: HTMLElement;
     private dayDotEl!: HTMLElement;
     private monthDotEl!: HTMLElement;
     private yearDotEl!: HTMLElement;
     private weekDotEl!: HTMLElement;
-    private calendarNavEl!: HTMLElement;
+    private calMonthYearEl!: HTMLElement;
 
     private static readonly MODE_ICONS: Record<TimerMode, string> = {
         pomodoro: 'target',
@@ -124,67 +124,34 @@ export class TomatoTimerCompactView extends ItemView {
 
         /* ── Current time row: time | year | month | day | week | mode switch ── */
         const currentRow = root.createDiv({ cls: 'Tomato-compact-current-row' });
-
         const dateGroup = currentRow.createDiv({ cls: 'Tomato-compact-date-group' });
-
-        // Time display only (no click operation)
         this.currentTimeEl = dateGroup.createDiv({ cls: 'Tomato-compact-current-time', text: '--:--' });
 
-        // Year section
-        const yearSection = dateGroup.createDiv({ cls: 'Tomato-compact-date-section' });
-        const yearLabel = yearSection.createDiv({ cls: 'Tomato-compact-date-label Tomato-compact-year-label', text: '' });
-        yearLabel.style.cursor = 'pointer';
-        yearLabel.addEventListener('click', () => {
-            const m = window.moment();
-            const note = getYearlyNote(m, get(yearlyNotes));
-            if (note) {
-                void this.app.workspace.getLeaf().openFile(note);
-            }
-        });
-        const yearIndicator = yearSection.createDiv({ cls: 'Tomato-compact-section-indicator' });
-        this.yearDotEl = yearIndicator.createDiv({ cls: 'Tomato-compact-vline Tomato-compact-vline-hollow' });
+        const makeSection = (labelCls: string, text: string, onClick: () => void): HTMLElement => {
+            const section = dateGroup.createDiv({ cls: 'Tomato-compact-date-section' });
+            const label = section.createDiv({ cls: `Tomato-compact-date-label ${labelCls}`, text });
+            label.style.cursor = 'pointer';
+            label.addEventListener('click', onClick);
+            const indicator = section.createDiv({ cls: 'Tomato-compact-section-indicator' });
+            return indicator.createDiv({ cls: 'Tomato-compact-vline Tomato-compact-vline-hollow' });
+        };
 
-        // Month section
-        const monthSection = dateGroup.createDiv({ cls: 'Tomato-compact-date-section' });
-        const monthLabel = monthSection.createDiv({ cls: 'Tomato-compact-date-label Tomato-compact-month-label', text: '' });
-        monthLabel.style.cursor = 'pointer';
-        monthLabel.addEventListener('click', () => {
-            const m = window.moment();
-            const note = getMonthlyNote(m, get(monthlyNotes));
-            if (note) {
-                void this.app.workspace.getLeaf().openFile(note);
-            }
+        this.yearDotEl = makeSection('Tomato-compact-year-label', '', () => {
+            const note = getYearlyNote(window.moment(), get(yearlyNotes));
+            if (note) void this.app.workspace.getLeaf().openFile(note);
         });
-        const monthIndicator = monthSection.createDiv({ cls: 'Tomato-compact-section-indicator' });
-        this.monthDotEl = monthIndicator.createDiv({ cls: 'Tomato-compact-vline Tomato-compact-vline-hollow' });
-
-        // Day section
-        const daySection = dateGroup.createDiv({ cls: 'Tomato-compact-date-section' });
-        const dayLabel = daySection.createDiv({ cls: 'Tomato-compact-date-label Tomato-compact-day-label', text: '' });
-        dayLabel.style.cursor = 'pointer';
-        dayLabel.addEventListener('click', () => {
-            const todayMoment = window.moment();
-            const note = getDailyNote(todayMoment, get(dailyNotes));
-            if (note) {
-                void this.app.workspace.getLeaf().openFile(note);
-            }
+        this.monthDotEl = makeSection('Tomato-compact-month-label', '', () => {
+            const note = getMonthlyNote(window.moment(), get(monthlyNotes));
+            if (note) void this.app.workspace.getLeaf().openFile(note);
         });
-        const dayIndicator = daySection.createDiv({ cls: 'Tomato-compact-section-indicator' });
-        this.dayDotEl = dayIndicator.createDiv({ cls: 'Tomato-compact-vline Tomato-compact-vline-hollow' });
-
-        // Week section (weekday)
-        const weekSection = dateGroup.createDiv({ cls: 'Tomato-compact-date-section' });
-        const weekLabel = weekSection.createDiv({ cls: 'Tomato-compact-date-label Tomato-compact-week-label', text: '周一' });
-        weekLabel.style.cursor = 'pointer';
-        weekLabel.addEventListener('click', () => {
-            const m = window.moment();
-            const note = getWeeklyNote(m, get(weeklyNotes));
-            if (note) {
-                void this.app.workspace.getLeaf().openFile(note);
-            }
+        this.dayDotEl = makeSection('Tomato-compact-day-label', '', () => {
+            const note = getDailyNote(window.moment(), get(dailyNotes));
+            if (note) void this.app.workspace.getLeaf().openFile(note);
         });
-        const weekIndicator = weekSection.createDiv({ cls: 'Tomato-compact-section-indicator' });
-        this.weekDotEl = weekIndicator.createDiv({ cls: 'Tomato-compact-vline Tomato-compact-vline-hollow' });
+        this.weekDotEl = makeSection('Tomato-compact-week-label', '周一', () => {
+            const note = getWeeklyNote(window.moment(), get(weeklyNotes));
+            if (note) void this.app.workspace.getLeaf().openFile(note);
+        });
 
         this.modeBtn = currentRow.createEl('button', {
             cls: 'Tomato-compact-mode-btn Tomato-compact-mode-toggle',
@@ -235,43 +202,110 @@ export class TomatoTimerCompactView extends ItemView {
         this.statusTextEl = infoRow.createDiv({ cls: 'Tomato-compact-status', text: this.plugin.t('panel.status.ready') });
         this.todayMinutesEl = infoRow.createDiv({ cls: 'Tomato-compact-today', text: '' });
 
-        /* ── Calendar with side arrows (same row) ── */
+        /* ── Calendar with right-side nav ── */
         const calWrapper = root.createDiv({ cls: 'Tomato-compact-cal-wrapper' });
-        const leftArrow = calWrapper.createEl('button', { cls: 'Tomato-compact-cal-arrow Tomato-compact-cal-arrow-left' });
-        setIcon(leftArrow, 'chevron-left');
-        leftArrow.addEventListener('click', (e) => {
+        const calMain = calWrapper.createDiv({ cls: 'Tomato-compact-cal-main' });
+        this.calendarEmbed = createCalendarEmbed(calMain, this.app);
+
+        const calNav = calWrapper.createDiv({ cls: 'Tomato-compact-cal-nav' });
+        this.calMonthYearEl = calNav.createDiv({ cls: 'Tomato-compact-cal-month-year' });
+        this.calMonthYearEl.addEventListener('click', () => {
+            this.calendarEmbed?.resetMonth();
+            this.updateCalendarNav();
+        });
+        this.calMonthYearEl.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const current = this.calendarEmbed?.getDisplayedMonth();
+            this.showJumpMonthPopup(e, current);
+        });
+
+        const upArrow = calNav.createEl('button', { cls: 'Tomato-compact-cal-arrow Tomato-compact-cal-arrow-up' });
+        setIcon(upArrow, 'chevron-up');
+        upArrow.addEventListener('click', (e) => {
             e.stopPropagation();
             this.calendarEmbed?.prevMonth();
+            this.updateCalendarNav();
         });
 
-        this.calendarEmbed = createCalendarEmbed(calWrapper, this.app);
-
-        const rightArrow = calWrapper.createEl('button', { cls: 'Tomato-compact-cal-arrow Tomato-compact-cal-arrow-right' });
-        setIcon(rightArrow, 'chevron-right');
-        rightArrow.addEventListener('click', (e) => {
+        const downArrow = calNav.createEl('button', { cls: 'Tomato-compact-cal-arrow Tomato-compact-cal-arrow-down' });
+        setIcon(downArrow, 'chevron-down');
+        downArrow.addEventListener('click', (e) => {
             e.stopPropagation();
             this.calendarEmbed?.nextMonth();
+            this.updateCalendarNav();
         });
+
+        this.updateCalendarNav();
     }
 
     private updateCurrentTime(): void {
         const now = new Date();
         this.currentTimeEl.setText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
 
-        const monthLabel = this.contentEl.querySelector('.Tomato-compact-month-label') as HTMLElement | null;
-        const yearLabel = this.contentEl.querySelector('.Tomato-compact-year-label') as HTMLElement | null;
-        const dayLabel = this.contentEl.querySelector('.Tomato-compact-day-label') as HTMLElement | null;
-        const weekLabel = this.contentEl.querySelector('.Tomato-compact-week-label') as HTMLElement | null;
-
-        if (monthLabel) monthLabel.setText(`${now.getMonth() + 1}`);
-        if (yearLabel) yearLabel.setText(`${now.getFullYear()}`);
-        if (dayLabel) dayLabel.setText(`${now.getDate()}`);
-        if (weekLabel) {
-            const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-            weekLabel.setText(weekdays[now.getDay()]);
+        const updates: [string, string][] = [
+            ['.Tomato-compact-year-label', `${now.getFullYear()}`],
+            ['.Tomato-compact-month-label', `${now.getMonth() + 1}`],
+            ['.Tomato-compact-day-label', `${now.getDate()}`],
+            ['.Tomato-compact-week-label', ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][now.getDay()]],
+        ];
+        for (const [sel, text] of updates) {
+            const el = this.contentEl.querySelector(sel) as HTMLElement | null;
+            if (el) el.setText(text);
         }
 
         void this.updateDateDots(now);
+        this.updateCalendarNav();
+    }
+
+    private updateCalendarNav(): void {
+        if (!this.calMonthYearEl || !this.calendarEmbed) return;
+        const m = this.calendarEmbed.getDisplayedMonth();
+        if (!m || typeof m.year !== 'function') return;
+        this.calMonthYearEl.setText(`${m.year()}年${m.month() + 1}月`);
+    }
+
+    private showJumpMonthPopup(e: MouseEvent, currentMonth: Moment | undefined): void {
+        const popup = document.createElement('div');
+        popup.className = 'Tomato-jump-month-popup';
+
+        const row = popup.createDiv({ cls: 'Tomato-jump-month-popup-row' });
+        const yearInput = row.createEl('input', { type: 'number', cls: 'Tomato-jump-month-input' });
+        yearInput.value = String(currentMonth?.year() ?? new Date().getFullYear());
+
+        row.createSpan({ text: '年', cls: 'Tomato-jump-month-label' });
+
+        const monthInput = row.createEl('input', { type: 'number', cls: 'Tomato-jump-month-input' });
+        monthInput.value = String((currentMonth?.month() ?? new Date().getMonth()) + 1);
+
+        row.createSpan({ text: '月', cls: 'Tomato-jump-month-label' });
+
+        const btnRow = popup.createDiv({ cls: 'Tomato-jump-month-popup-btns' });
+        const okBtn = btnRow.createEl('button', { text: '确定', cls: 'mod-cta' });
+        okBtn.addEventListener('click', () => {
+            const y = parseInt(yearInput.value);
+            const m = parseInt(monthInput.value);
+            if (y && m >= 1 && m <= 12) {
+                const mm = window.moment([y, m - 1]);
+                this.calendarEmbed?.jumpToMonth(mm);
+                this.updateCalendarNav();
+            }
+            popup.remove();
+        });
+
+        const cancelBtn = btnRow.createEl('button', { text: '取消' });
+        cancelBtn.addEventListener('click', () => popup.remove());
+
+        popup.style.top = `${e.clientY + 16}px`;
+        document.body.appendChild(popup);
+        popup.style.left = `${e.clientX - popup.offsetWidth}px`;
+
+        const closeOnOutside = (evt: MouseEvent) => {
+            if (!popup.contains(evt.target as Node)) {
+                popup.remove();
+                document.removeEventListener('mousedown', closeOnOutside);
+            }
+        };
+        setTimeout(() => document.addEventListener('mousedown', closeOnOutside), 0);
     }
 
     private async updateDateDots(now: Date): Promise<void> {
@@ -651,3 +685,5 @@ export class TomatoTimerCompactView extends ItemView {
         return this.phaseLabels[state.phase];
     }
 }
+
+

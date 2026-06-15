@@ -31,111 +31,56 @@ function getDateUID(date: moment.Moment, granularity: string): string {
   return `${granularity}-${date.clone().startOf(granularity).format()}`;
 }
 
-export function getAllWeeklyNotes(): Record<string, TFile> {
+function getAllPeriodicNotes(
+  folderKey: keyof ISettings,
+  formatKey: keyof ISettings,
+  getUid: (date: moment.Moment) => string
+): Record<string, TFile> {
   const { vault } = window.app;
-  const { weeklyNoteFolder, weeklyNoteFormat } = get(settings);
-  if (!weeklyNoteFolder) return {};
-  const folderPath = normalizePath(weeklyNoteFolder);
-  const folder = vault.getAbstractFileByPath(folderPath);
+  const s = get(settings);
+  const folder = s[folderKey] as string;
+  const format = s[formatKey] as string;
   if (!folder) return {};
+  const folderPath = normalizePath(folder);
+  const folderObj = vault.getAbstractFileByPath(folderPath);
+  if (!folderObj) return {};
   const notes: Record<string, TFile> = {};
-  Vault.recurseChildren(folder, (note) => {
+  Vault.recurseChildren(folderObj, (note) => {
     if (note instanceof ObsidianTFile) {
-      const date = getDateFromFile(note, weeklyNoteFormat);
+      const date = getDateFromFile(note, format);
       if (date) {
-        notes[getDateUID(date, "week")] = note;
+        notes[getUid(date)] = note;
       }
     }
   });
   return notes;
 }
 
-export function getWeeklyNote(
-  date: moment.Moment,
-  weeklyNotes: Record<string, TFile>
-): TFile | null {
-  return weeklyNotes[getDateUID(date, "week")] ?? null;
+export function getAllWeeklyNotes(): Record<string, TFile> {
+  return getAllPeriodicNotes('weeklyNoteFolder', 'weeklyNoteFormat', d => getDateUID(d, 'week'));
+}
+export function getWeeklyNote(date: moment.Moment, weeklyNotes: Record<string, TFile>): TFile | null {
+  return weeklyNotes[getDateUID(date, 'week')] ?? null;
 }
 
 export function getAllMonthlyNotes(): Record<string, TFile> {
-  const { vault } = window.app;
-  const { monthlyNoteFolder, monthlyNoteFormat } = get(settings);
-  if (!monthlyNoteFolder) return {};
-  const folderPath = normalizePath(monthlyNoteFolder);
-  const folder = vault.getAbstractFileByPath(folderPath);
-  if (!folder) return {};
-  const notes: Record<string, TFile> = {};
-  Vault.recurseChildren(folder, (note) => {
-    if (note instanceof ObsidianTFile) {
-      const date = getDateFromFile(note, monthlyNoteFormat);
-      if (date) {
-        notes[getDateUID(date, "month")] = note;
-      }
-    }
-  });
-  return notes;
+  return getAllPeriodicNotes('monthlyNoteFolder', 'monthlyNoteFormat', d => getDateUID(d, 'month'));
 }
-
-export function getMonthlyNote(
-  date: moment.Moment,
-  monthlyNotes: Record<string, TFile>
-): TFile | null {
-  return monthlyNotes[getDateUID(date, "month")] ?? null;
+export function getMonthlyNote(date: moment.Moment, monthlyNotes: Record<string, TFile>): TFile | null {
+  return monthlyNotes[getDateUID(date, 'month')] ?? null;
 }
 
 export function getAllQuarterlyNotes(): Record<string, TFile> {
-  const { vault } = window.app;
-  const { quarterlyNoteFolder, quarterlyNoteFormat } = get(settings);
-  if (!quarterlyNoteFolder) return {};
-  const folderPath = normalizePath(quarterlyNoteFolder);
-  const folder = vault.getAbstractFileByPath(folderPath);
-  if (!folder) return {};
-  const notes: Record<string, TFile> = {};
-  Vault.recurseChildren(folder, (note) => {
-    if (note instanceof ObsidianTFile) {
-      const date = getDateFromFile(note, quarterlyNoteFormat);
-      if (date) {
-        const year = date.year();
-        const quarter = date.quarter();
-        notes[`quarter-${year}-${quarter}`] = note;
-      }
-    }
-  });
-  return notes;
+  return getAllPeriodicNotes('quarterlyNoteFolder', 'quarterlyNoteFormat', d => `quarter-${d.year()}-${d.quarter()}`);
 }
-
-export function getQuarterlyNote(
-  date: moment.Moment,
-  quarterlyNotes: Record<string, TFile>
-): TFile | null {
-  const year = date.year();
-  const quarter = date.quarter();
-  return quarterlyNotes[`quarter-${year}-${quarter}`] ?? null;
+export function getQuarterlyNote(date: moment.Moment, quarterlyNotes: Record<string, TFile>): TFile | null {
+  return quarterlyNotes[`quarter-${date.year()}-${date.quarter()}`] ?? null;
 }
 
 export function getAllYearlyNotes(): Record<string, TFile> {
-  const { vault } = window.app;
-  const { yearlyNoteFolder, yearlyNoteFormat } = get(settings);
-  if (!yearlyNoteFolder) return {};
-  const folderPath = normalizePath(yearlyNoteFolder);
-  const folder = vault.getAbstractFileByPath(folderPath);
-  if (!folder) return {};
-  const notes: Record<string, TFile> = {};
-  Vault.recurseChildren(folder, (note) => {
-    if (note instanceof ObsidianTFile) {
-      const date = getDateFromFile(note, yearlyNoteFormat);
-      if (date) {
-        notes[`year-${date.year()}`] = note;
-      }
-    }
-  });
-  return notes;
+  return getAllPeriodicNotes('yearlyNoteFolder', 'yearlyNoteFormat', d => `year-${d.year()}`);
 }
-
-export function getYearlyNote(
-  date: moment.Moment,
-  yearlyNotes: Record<string, TFile>
-): TFile | null {
+export function getYearlyNote(date: moment.Moment, yearlyNotes: Record<string, TFile>): TFile | null {
   return yearlyNotes[`year-${date.year()}`] ?? null;
 }
 
@@ -160,80 +105,17 @@ function createDailyNotesStore() {
   };
 }
 
-function createWeeklyNotesStore() {
+function createPeriodicNotesStore(getter: () => Record<string, TFile>, label: string) {
   let hasError = false;
   const store = writable<Record<string, TFile>>(null);
   return {
     reindex: () => {
       try {
-        store.set(getAllWeeklyNotes());
+        store.set(getter());
         hasError = false;
       } catch (err) {
         if (!hasError) {
-          console.log("[Calendar] Failed to find weekly notes folder", err);
-        }
-        store.set({});
-        hasError = true;
-      }
-    },
-    ...store,
-  };
-}
-
-function createMonthlyNotesStore() {
-  let hasError = false;
-  const store = writable<Record<string, TFile>>(null);
-  return {
-    reindex: () => {
-      try {
-        store.set(getAllMonthlyNotes());
-        hasError = false;
-      } catch (err) {
-        if (!hasError) {
-          console.log("[Calendar] Failed to find monthly notes folder", err);
-        }
-        store.set({});
-        hasError = true;
-      }
-    },
-    ...store,
-  };
-}
-
-function createQuarterlyNotesStore() {
-  let hasError = false;
-  const store = writable<Record<string, TFile>>(null);
-  return {
-    reindex: () => {
-      try {
-        store.set(getAllQuarterlyNotes());
-        hasError = false;
-      } catch (err) {
-        if (!hasError) {
-          console.log(
-            "[Calendar] Failed to find quarterly notes folder",
-            err
-          );
-        }
-        store.set({});
-        hasError = true;
-      }
-    },
-    ...store,
-  };
-}
-
-function createYearlyNotesStore() {
-  let hasError = false;
-  const store = writable<Record<string, TFile>>(null);
-  return {
-    reindex: () => {
-      try {
-        store.set(getAllYearlyNotes());
-        hasError = false;
-      } catch (err) {
-        if (!hasError) {
-          console.log("[Calendar] Failed to find yearly notes folder", err);
+          console.log(`[Calendar] Failed to find ${label} notes folder`, err);
         }
         store.set({});
         hasError = true;
@@ -245,10 +127,10 @@ function createYearlyNotesStore() {
 
 export const settings = writable<ISettings>(defaultSettings);
 export const dailyNotes = createDailyNotesStore();
-export const weeklyNotes = createWeeklyNotesStore();
-export const monthlyNotes = createMonthlyNotesStore();
-export const quarterlyNotes = createQuarterlyNotesStore();
-export const yearlyNotes = createYearlyNotesStore();
+export const weeklyNotes = createPeriodicNotesStore(getAllWeeklyNotes, 'weekly');
+export const monthlyNotes = createPeriodicNotesStore(getAllMonthlyNotes, 'monthly');
+export const quarterlyNotes = createPeriodicNotesStore(getAllQuarterlyNotes, 'quarterly');
+export const yearlyNotes = createPeriodicNotesStore(getAllYearlyNotes, 'yearly');
 
 function createSelectedFileStore() {
   const store = writable<string>(null);

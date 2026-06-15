@@ -115,44 +115,11 @@ export class TomatoTimerView extends ItemView {
         const viewMonthBtn = navRight.createEl('button', { cls: 'Tomato-cal-view-btn', text: this.plugin.t('panel.view.month') });
         const viewBtns: Record<CalendarView, HTMLButtonElement> = { day: viewDayBtn, week: viewWeekBtn, month: viewMonthBtn };
 
-        this.registerDomEvent(prevBtn, 'click', () => {
-            if (this.calendarView === 'day') {
-                this.navDate = addDays(this.navDate, -1);
-            } else if (this.calendarView === 'week') {
-                this.navDate = addDays(this.navDate, -7);
-            } else {
-                const d = new Date(this.navDate + 'T00:00:00');
-                d.setMonth(d.getMonth() - 1);
-                this.navDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            }
-            void this.refreshTabContent();
-        });
-        this.registerDomEvent(nextBtn, 'click', () => {
-            if (this.calendarView === 'day') {
-                this.navDate = addDays(this.navDate, 1);
-            } else if (this.calendarView === 'week') {
-                this.navDate = addDays(this.navDate, 7);
-            } else {
-                const d = new Date(this.navDate + 'T00:00:00');
-                d.setMonth(d.getMonth() + 1);
-                this.navDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            }
-            void this.refreshTabContent();
-        });
-        this.registerDomEvent(this.todayBtn, 'click', () => {
-            this.navDate = todayString();
-            void this.refreshTabContent();
-        });
+        this.registerDomEvent(prevBtn, 'click', () => this.navigateDate(-1));
+        this.registerDomEvent(nextBtn, 'click', () => this.navigateDate(1));
+        this.registerDomEvent(this.todayBtn, 'click', () => { this.navDate = todayString(); void this.refreshTabContent(); });
 
-        (Object.keys(viewBtns) as CalendarView[]).forEach(v => {
-            this.registerDomEvent(viewBtns[v], 'click', () => {
-                this.calendarView = v;
-                (Object.keys(viewBtns) as CalendarView[]).forEach(k => {
-                    viewBtns[k].toggleClass('active', k === v);
-                });
-                void this.refreshTabContent();
-            });
-        });
+        this.bindBtnGroup(viewBtns, (v) => { this.calendarView = v; void this.refreshTabContent(); });
 
         // View tabs
         const viewTabs = this.weekViewEl.createDiv({ cls: 'Tomato-view-tabs' });
@@ -162,15 +129,7 @@ export class TomatoTimerView extends ItemView {
             timesheet: viewTabs.createEl('button', { cls: 'Tomato-view-tab', text: this.plugin.t('panel.tab.timesheet') }),
             stats: viewTabs.createEl('button', { cls: 'Tomato-view-tab', text: this.plugin.t('panel.tab.stats') }),
         };
-        (Object.keys(this.viewTabBtns) as TabType[]).forEach(tab => {
-            this.registerDomEvent(this.viewTabBtns[tab], 'click', () => {
-                this.currentTab = tab;
-                (Object.keys(this.viewTabBtns) as TabType[]).forEach(t => {
-                    this.viewTabBtns[t].toggleClass('active', t === tab);
-                });
-                void this.refreshTabContent();
-            });
-        });
+        this.bindBtnGroup(this.viewTabBtns, (tab) => { this.currentTab = tab; void this.refreshTabContent(); });
 
         // Tab content
         this.tabContentEl = this.weekViewEl.createDiv({ cls: 'Tomato-week-tab-content' });
@@ -227,6 +186,28 @@ export class TomatoTimerView extends ItemView {
                 this.renderStats(allEntries);
                 break;
         }
+    }
+
+    private navigateDate(delta: number): void {
+        if (this.calendarView === 'day') {
+            this.navDate = addDays(this.navDate, delta);
+        } else if (this.calendarView === 'week') {
+            this.navDate = addDays(this.navDate, delta * 7);
+        } else {
+            const d = new Date(this.navDate + 'T00:00:00');
+            d.setMonth(d.getMonth() + delta);
+            this.navDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+        void this.refreshTabContent();
+    }
+
+    private bindBtnGroup<T extends string>(btns: Record<T, HTMLButtonElement>, onActivate: (key: T) => void): void {
+        (Object.keys(btns) as T[]).forEach(k => {
+            this.registerDomEvent(btns[k], 'click', () => {
+                onActivate(k);
+                (Object.keys(btns) as T[]).forEach(t => btns[t].toggleClass('active', t === k));
+            });
+        });
     }
 
     private renderWeekNavTitle(): void {

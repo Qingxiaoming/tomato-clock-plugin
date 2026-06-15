@@ -94,6 +94,27 @@ export class TomatoSettingTab extends PluginSettingTab {
         this.plugin = plugin;
     }
 
+    private static readonly FALLBACK_FONTS = [
+        'Arial', 'Helvetica', 'Times New Roman', 'Georgia',
+        'Courier New', 'Consolas', 'Monaco',
+        'JetBrains Mono', 'Fira Code', 'Inter', 'Roboto', 'system-ui',
+    ];
+    private static readonly CN_FONTS = [
+        'Microsoft YaHei', '微软雅黑',
+        'SimSun', '宋体',
+        'SimHei', '黑体',
+        'DengXian', '等线',
+        'KaiTi', '楷体',
+        'FangSong', '仿宋',
+        'PingFang SC', '苹方',
+        'Hiragino Sans GB', '冬青黑体',
+        'Noto Sans CJK SC', '思源黑体',
+        'Source Han Sans SC', '思源黑体 SC',
+        'LXGW WenKai', '霞鹜文楷',
+        'Smiley Sans', '得意黑',
+        'HarmonyOS Sans', '鸿蒙字体',
+    ];
+
     private async loadSystemFonts(dropdown: DropdownComponent, currentValue: string): Promise<void> {
         let fonts: string[] = [];
         try {
@@ -101,52 +122,22 @@ export class TomatoSettingTab extends PluginSettingTab {
                 // @ts-ignore
                 const localFonts = await window.queryLocalFonts();
                 const names = new Set<string>();
-                for (const font of localFonts) {
-                    names.add(font.family);
-                }
+                for (const font of localFonts) names.add(font.family);
                 fonts = Array.from(names).sort();
             }
         } catch {
             // Local font query not available, use fallback list
         }
 
-        if (fonts.length === 0) {
-            fonts = [
-                'Arial', 'Helvetica', 'Times New Roman', 'Georgia',
-                'Courier New', 'Consolas', 'Monaco',
-                'JetBrains Mono', 'Fira Code', 'Inter', 'Roboto', 'system-ui',
-            ];
+        if (fonts.length === 0) fonts = [...TomatoSettingTab.FALLBACK_FONTS];
+
+        for (const f of TomatoSettingTab.CN_FONTS) {
+            if (!fonts.includes(f)) fonts.push(f);
         }
 
-        // Always include common Chinese fonts
-        const cnFonts = [
-            'Microsoft YaHei', '微软雅黑',
-            'SimSun', '宋体',
-            'SimHei', '黑体',
-            'DengXian', '等线',
-            'KaiTi', '楷体',
-            'FangSong', '仿宋',
-            'PingFang SC', '苹方',
-            'Hiragino Sans GB', '冬青黑体',
-            'Noto Sans CJK SC', '思源黑体',
-            'Source Han Sans SC', '思源黑体 SC',
-            'LXGW WenKai', '霞鹜文楷',
-            'Smiley Sans', '得意黑',
-            'HarmonyOS Sans', '鸿蒙字体',
-        ];
-        for (const f of cnFonts) {
-            if (!fonts.includes(f)) {
-                fonts.push(f);
-            }
-        }
+        if (!fonts.includes(currentValue)) fonts.unshift(currentValue);
 
-        if (!fonts.includes(currentValue)) {
-            fonts.unshift(currentValue);
-        }
-
-        for (const font of fonts) {
-            dropdown.addOption(font, font);
-        }
+        for (const font of fonts) dropdown.addOption(font, font);
         dropdown.setValue(currentValue);
     }
 
@@ -185,264 +176,73 @@ export class TomatoSettingTab extends PluginSettingTab {
     private renderTomatoSettings(containerEl: HTMLElement): void {
         const _t = (k: string) => this.plugin.t(k);
 
+        const addSlider = (name: string, desc: string | undefined, limits: [number, number, number], value: number, cb: (v: number) => Promise<void>) => {
+            const s = new Setting(containerEl).setName(name);
+            if (desc) s.setDesc(desc);
+            s.addSlider(sl => sl.setLimits(...limits).setValue(value).setDynamicTooltip().onChange(cb));
+        };
+        const addToggle = (name: string, desc: string | undefined, value: boolean, cb: (v: boolean) => Promise<void>) => {
+            const s = new Setting(containerEl).setName(name);
+            if (desc) s.setDesc(desc);
+            s.addToggle(t => t.setValue(value).onChange(cb));
+        };
+        const addDropdown = (name: string, desc: string | undefined, options: Record<string, string>, value: string, cb: (v: string) => Promise<void>) => {
+            const s = new Setting(containerEl).setName(name);
+            if (desc) s.setDesc(desc);
+            s.addDropdown(d => {
+                for (const [k, label] of Object.entries(options)) d.addOption(k, label);
+                d.setValue(value).onChange(cb);
+            });
+        };
+        const addFont = (name: string, desc: string, key: keyof TomatoPluginSettings) => {
+            let dd: DropdownComponent;
+            new Setting(containerEl).setName(name).setDesc(desc).addDropdown(d => { dd = d; d.onChange(async v => { (this.plugin.settings as any)[key] = v; await this.plugin.saveSettings(); this.plugin.refreshAllViews(); }); });
+            void this.loadSystemFonts(dd!, this.plugin.settings[key] as string);
+        };
+
         new Setting(containerEl).setHeading().setName(_t('settings.heading'));
 
-        // Language
-        new Setting(containerEl)
-            .setName(_t('settings.language'))
-            .addDropdown(d => d
-                .addOption('zh', '中文')
-                .addOption('en', 'English')
-                .setValue(this.plugin.settings.language)
-                .onChange(async v => {
-                    this.plugin.settings.language = v as Lang;
-                    await this.plugin.saveSettings();
-                    this.plugin.refreshAllViews();
-                    this.plugin.refreshLogViews();
-                    this.display();
-                }));
+        addDropdown(_t('settings.language'), undefined, { zh: '中文', en: 'English' }, this.plugin.settings.language, async v => {
+            this.plugin.settings.language = v as Lang;
+            await this.plugin.saveSettings();
+            this.plugin.refreshAllViews();
+            this.plugin.refreshLogViews();
+            this.display();
+        });
 
         // --- Durations ---
         new Setting(containerEl).setHeading().setName(_t('settings.durations'));
-
-        new Setting(containerEl)
-            .setName(_t('settings.workDuration'))
-            .addSlider(s => s
-                .setLimits(1, 90, 1)
-                .setValue(this.plugin.settings.workMinutes)
-                .setDynamicTooltip()
-                .onChange(async v => {
-                    this.plugin.settings.workMinutes = v;
-                    await this.plugin.saveSettings();
-                    this.plugin.applySettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.shortBreak'))
-            .addSlider(s => s
-                .setLimits(1, 30, 1)
-                .setValue(this.plugin.settings.shortBreakMinutes)
-                .setDynamicTooltip()
-                .onChange(async v => {
-                    this.plugin.settings.shortBreakMinutes = v;
-                    await this.plugin.saveSettings();
-                    this.plugin.applySettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.longBreak'))
-            .addSlider(s => s
-                .setLimits(5, 60, 1)
-                .setValue(this.plugin.settings.longBreakMinutes)
-                .setDynamicTooltip()
-                .onChange(async v => {
-                    this.plugin.settings.longBreakMinutes = v;
-                    await this.plugin.saveSettings();
-                    this.plugin.applySettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.cycles'))
-            .setDesc(_t('settings.cyclesDesc'))
-            .addSlider(s => s
-                .setLimits(2, 8, 1)
-                .setValue(this.plugin.settings.cycles)
-                .setDynamicTooltip()
-                .onChange(async v => {
-                    this.plugin.settings.cycles = v;
-                    await this.plugin.saveSettings();
-                    this.plugin.applySettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.countdownDuration'))
-            .setDesc(_t('settings.countdownDurationDesc'))
-            .addSlider(s => s
-                .setLimits(1, 120, 1)
-                .setValue(this.plugin.settings.countdownMinutes)
-                .setDynamicTooltip()
-                .onChange(async v => {
-                    this.plugin.settings.countdownMinutes = v;
-                    await this.plugin.saveSettings();
-                    this.plugin.applySettings();
-                }));
+        addSlider(_t('settings.workDuration'), undefined, [1, 90, 1], this.plugin.settings.workMinutes, async v => { this.plugin.settings.workMinutes = v; await this.plugin.saveSettings(); this.plugin.applySettings(); });
+        addSlider(_t('settings.shortBreak'), undefined, [1, 30, 1], this.plugin.settings.shortBreakMinutes, async v => { this.plugin.settings.shortBreakMinutes = v; await this.plugin.saveSettings(); this.plugin.applySettings(); });
+        addSlider(_t('settings.longBreak'), undefined, [5, 60, 1], this.plugin.settings.longBreakMinutes, async v => { this.plugin.settings.longBreakMinutes = v; await this.plugin.saveSettings(); this.plugin.applySettings(); });
+        addSlider(_t('settings.cycles'), _t('settings.cyclesDesc'), [2, 8, 1], this.plugin.settings.cycles, async v => { this.plugin.settings.cycles = v; await this.plugin.saveSettings(); this.plugin.applySettings(); });
+        addSlider(_t('settings.countdownDuration'), _t('settings.countdownDurationDesc'), [1, 120, 1], this.plugin.settings.countdownMinutes, async v => { this.plugin.settings.countdownMinutes = v; await this.plugin.saveSettings(); this.plugin.applySettings(); });
 
         // --- Behavior ---
         new Setting(containerEl).setHeading().setName(_t('settings.behavior'));
-
-        new Setting(containerEl)
-            .setName(_t('settings.autoStart'))
-            .setDesc(_t('settings.autoStartDesc'))
-            .addToggle(t => t
-                .setValue(this.plugin.settings.autoStartNextPhase)
-                .onChange(async v => {
-                    this.plugin.settings.autoStartNextPhase = v;
-                    await this.plugin.saveSettings();
-                    this.plugin.applySettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.sound'))
-            .setDesc(_t('settings.soundDesc'))
-            .addToggle(t => t
-                .setValue(this.plugin.settings.enableSound)
-                .onChange(async v => {
-                    this.plugin.settings.enableSound = v;
-                    await this.plugin.saveSettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.osNotification'))
-            .setDesc(_t('settings.osNotificationDesc'))
-            .addToggle(t => t
-                .setValue(this.plugin.settings.enableOsNotification)
-                .onChange(async v => {
-                    this.plugin.settings.enableOsNotification = v;
-                    await this.plugin.saveSettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.showStatusBar'))
-            .setDesc(_t('settings.showStatusBarDesc'))
-            .addToggle(t => t
-                .setValue(this.plugin.settings.showStatusBar)
-                .onChange(async v => {
-                    this.plugin.settings.showStatusBar = v;
-                    await this.plugin.saveSettings();
-                    this.plugin.applySettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.calendarSnap'))
-            .setDesc(_t('settings.calendarSnapDesc'))
-            .addDropdown(d => d
-                .addOption('1', '1 min')
-                .addOption('5', '5 min')
-                .addOption('10', '10 min')
-                .addOption('15', '15 min')
-                .addOption('30', '30 min')
-                .setValue(String(this.plugin.settings.calendarSnapMinutes))
-                .onChange(async v => {
-                    this.plugin.settings.calendarSnapMinutes = parseInt(v, 10);
-                    await this.plugin.saveSettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.compactCurrentTimeFontSize'))
-            .setDesc(_t('settings.compactCurrentTimeFontSizeDesc'))
-            .addSlider(s => s
-                .setLimits(0.8, 2.5, 0.1)
-                .setValue(this.plugin.settings.compactCurrentTimeFontSize)
-                .setDynamicTooltip()
-                .onChange(async v => {
-                    this.plugin.settings.compactCurrentTimeFontSize = v;
-                    await this.plugin.saveSettings();
-                    this.plugin.refreshAllViews();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.compactTimerFontSize'))
-            .setDesc(_t('settings.compactTimerFontSizeDesc'))
-            .addSlider(s => s
-                .setLimits(0.8, 2.5, 0.1)
-                .setValue(this.plugin.settings.compactTimerFontSize)
-                .setDynamicTooltip()
-                .onChange(async v => {
-                    this.plugin.settings.compactTimerFontSize = v;
-                    await this.plugin.saveSettings();
-                    this.plugin.refreshAllViews();
-                }));
-
-        const currentTimeFontSetting = new Setting(containerEl)
-            .setName(_t('settings.compactCurrentTimeFontFamily'))
-            .setDesc(_t('settings.compactCurrentTimeFontFamilyDesc'));
-        let currentTimeFontDropdown: DropdownComponent;
-        currentTimeFontSetting.addDropdown(d => {
-            currentTimeFontDropdown = d;
-            d.onChange(async v => {
-                this.plugin.settings.compactCurrentTimeFontFamily = v;
-                await this.plugin.saveSettings();
-                this.plugin.refreshAllViews();
-            });
-        });
-        void this.loadSystemFonts(currentTimeFontDropdown!, this.plugin.settings.compactCurrentTimeFontFamily);
-
-        const timerFontSetting = new Setting(containerEl)
-            .setName(_t('settings.compactTimerFontFamily'))
-            .setDesc(_t('settings.compactTimerFontFamilyDesc'));
-        let timerFontDropdown: DropdownComponent;
-        timerFontSetting.addDropdown(d => {
-            timerFontDropdown = d;
-            d.onChange(async v => {
-                this.plugin.settings.compactTimerFontFamily = v;
-                await this.plugin.saveSettings();
-                this.plugin.refreshAllViews();
-            });
-        });
-        void this.loadSystemFonts(timerFontDropdown!, this.plugin.settings.compactTimerFontFamily);
-
-        // Date area: separate Chinese / English fonts
-        const dateCnFontSetting = new Setting(containerEl)
-            .setName('日期区域中文字体')
-            .setDesc('日期行中文内容（如星期几）使用的字体');
-        let dateCnFontDropdown: DropdownComponent;
-        dateCnFontSetting.addDropdown(d => {
-            dateCnFontDropdown = d;
-            d.onChange(async v => {
-                this.plugin.settings.compactDateFontFamilyCn = v;
-                await this.plugin.saveSettings();
-                this.plugin.refreshAllViews();
-            });
-        });
-        void this.loadSystemFonts(dateCnFontDropdown!, this.plugin.settings.compactDateFontFamilyCn);
-
-        const dateEnFontSetting = new Setting(containerEl)
-            .setName('日期区域英文字体')
-            .setDesc('日期行英文/数字内容（如时间、年、月）使用的字体');
-        let dateEnFontDropdown: DropdownComponent;
-        dateEnFontSetting.addDropdown(d => {
-            dateEnFontDropdown = d;
-            d.onChange(async v => {
-                this.plugin.settings.compactDateFontFamilyEn = v;
-                await this.plugin.saveSettings();
-                this.plugin.refreshAllViews();
-            });
-        });
-        void this.loadSystemFonts(dateEnFontDropdown!, this.plugin.settings.compactDateFontFamilyEn);
+        addToggle(_t('settings.autoStart'), _t('settings.autoStartDesc'), this.plugin.settings.autoStartNextPhase, async v => { this.plugin.settings.autoStartNextPhase = v; await this.plugin.saveSettings(); this.plugin.applySettings(); });
+        addToggle(_t('settings.sound'), _t('settings.soundDesc'), this.plugin.settings.enableSound, async v => { this.plugin.settings.enableSound = v; await this.plugin.saveSettings(); });
+        addToggle(_t('settings.osNotification'), _t('settings.osNotificationDesc'), this.plugin.settings.enableOsNotification, async v => { this.plugin.settings.enableOsNotification = v; await this.plugin.saveSettings(); });
+        addToggle(_t('settings.showStatusBar'), _t('settings.showStatusBarDesc'), this.plugin.settings.showStatusBar, async v => { this.plugin.settings.showStatusBar = v; await this.plugin.saveSettings(); this.plugin.applySettings(); });
+        addDropdown(_t('settings.calendarSnap'), _t('settings.calendarSnapDesc'), { '1': '1 min', '5': '5 min', '10': '10 min', '15': '15 min', '30': '30 min' }, String(this.plugin.settings.calendarSnapMinutes), async v => { this.plugin.settings.calendarSnapMinutes = parseInt(v, 10); await this.plugin.saveSettings(); });
+        addSlider(_t('settings.compactCurrentTimeFontSize'), _t('settings.compactCurrentTimeFontSizeDesc'), [0.8, 2.5, 0.1], this.plugin.settings.compactCurrentTimeFontSize, async v => { this.plugin.settings.compactCurrentTimeFontSize = v; await this.plugin.saveSettings(); this.plugin.refreshAllViews(); });
+        addSlider(_t('settings.compactTimerFontSize'), _t('settings.compactTimerFontSizeDesc'), [0.8, 2.5, 0.1], this.plugin.settings.compactTimerFontSize, async v => { this.plugin.settings.compactTimerFontSize = v; await this.plugin.saveSettings(); this.plugin.refreshAllViews(); });
+        addFont(_t('settings.compactCurrentTimeFontFamily'), _t('settings.compactCurrentTimeFontFamilyDesc'), 'compactCurrentTimeFontFamily');
+        addFont(_t('settings.compactTimerFontFamily'), _t('settings.compactTimerFontFamilyDesc'), 'compactTimerFontFamily');
+        addFont('日期区域中文字体', '日期行中文内容（如星期几）使用的字体', 'compactDateFontFamilyCn');
+        addFont('日期区域英文字体', '日期行英文/数字内容（如时间、年、月）使用的字体', 'compactDateFontFamilyEn');
 
         // --- Log ---
         new Setting(containerEl).setHeading().setName(_t('settings.log'));
-
         new Setting(containerEl)
             .setName(_t('settings.logFolder'))
             .setDesc(_t('settings.logFolderDesc'))
-            .addText(t => t
-                .setPlaceholder('Tomato Logs')
-                .setValue(this.plugin.settings.logFolder)
-                .onChange(async v => {
-                    this.plugin.settings.logFolder = v.trim() || 'Tomato Logs';
-                    await this.plugin.saveSettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.enableDailyNoteLink'))
-            .setDesc(_t('settings.enableDailyNoteLinkDesc'))
-            .addToggle(t => t
-                .setValue(this.plugin.settings.enableDailyNoteLink)
-                .onChange(async v => {
-                    this.plugin.settings.enableDailyNoteLink = v;
-                    await this.plugin.saveSettings();
-                }));
-
-        new Setting(containerEl)
-            .setName(_t('settings.openLogOnComplete'))
-            .setDesc(_t('settings.openLogOnCompleteDesc'))
-            .addToggle(t => t
-                .setValue(this.plugin.settings.openLogOnComplete)
-                .onChange(async v => {
-                    this.plugin.settings.openLogOnComplete = v;
-                    await this.plugin.saveSettings();
-                }));
+            .addText(t => t.setPlaceholder('Tomato Logs').setValue(this.plugin.settings.logFolder).onChange(async v => {
+                this.plugin.settings.logFolder = v.trim() || 'Tomato Logs';
+                await this.plugin.saveSettings();
+            }));
+        addToggle(_t('settings.enableDailyNoteLink'), _t('settings.enableDailyNoteLinkDesc'), this.plugin.settings.enableDailyNoteLink, async v => { this.plugin.settings.enableDailyNoteLink = v; await this.plugin.saveSettings(); });
+        addToggle(_t('settings.openLogOnComplete'), _t('settings.openLogOnCompleteDesc'), this.plugin.settings.openLogOnComplete, async v => { this.plugin.settings.openLogOnComplete = v; await this.plugin.saveSettings(); });
 
         // --- Projects ---
         new Setting(containerEl).setHeading().setName(_t('settings.projects'));
@@ -558,6 +358,32 @@ export class TomatoSettingTab extends PluginSettingTab {
             calendarSettings.update((old: any) => ({ ...old, ...change }));
         };
 
+        const addCalText = (name: string, desc: string, value: string | undefined, placeholder: string | undefined, key: keyof CalendarExtendedSettings) => {
+            new Setting(containerEl)
+                .setName(name)
+                .setDesc(desc)
+                .addText(tf => {
+                    if (placeholder !== undefined) tf.setPlaceholder(placeholder);
+                    tf.setValue(value || '');
+                    tf.onChange(async (v) => {
+                        await updateCal({ [key]: v } as Partial<CalendarExtendedSettings>);
+                    });
+                });
+        };
+
+        const addCalToggle = (name: string, desc: string, value: boolean, key: keyof CalendarExtendedSettings, redraw?: boolean) => {
+            new Setting(containerEl)
+                .setName(name)
+                .setDesc(desc)
+                .addToggle(toggle => {
+                    toggle.setValue(value);
+                    toggle.onChange(async (v) => {
+                        await updateCal({ [key]: v } as Partial<CalendarExtendedSettings>);
+                        if (redraw) this.renderCalendarSettings(containerEl);
+                    });
+                });
+        };
+
         if (!appHasDailyNotesPluginLoaded()) {
             const banner = containerEl.createDiv('settings-banner');
             banner.createEl('h3', { text: t('dailyNotesNotEnabled') });
@@ -609,183 +435,34 @@ export class TomatoSettingTab extends PluginSettingTab {
                 });
             });
 
-        new Setting(containerEl)
-            .setName(t('confirmBeforeCreate'))
-            .setDesc(t('confirmBeforeCreateDesc'))
-            .addToggle(toggle => {
-                toggle.setValue(cal.shouldConfirmBeforeCreate);
-                toggle.onChange(async (v) => {
-                    await updateCal({ shouldConfirmBeforeCreate: v });
-                });
-            });
-
-        new Setting(containerEl)
-            .setName(t('dayStartsAt4AM'))
-            .setDesc(t('dayStartsAt4AMDesc'))
-            .addToggle(toggle => {
-                toggle.setValue(cal.dayStartsAt4AM || false);
-                toggle.onChange(async (v) => {
-                    await updateCal({ dayStartsAt4AM: v });
-                });
-            });
-
-        new Setting(containerEl)
-            .setName(t('showWeekNumber'))
-            .setDesc(t('showWeekNumberDesc'))
-            .addToggle(toggle => {
-                toggle.setValue(cal.showWeeklyNote);
-                toggle.onChange(async (v) => {
-                    await updateCal({ showWeeklyNote: v });
-                    this.renderCalendarSettings(containerEl);
-                });
-            });
+        addCalToggle(t('confirmBeforeCreate'), t('confirmBeforeCreateDesc'), cal.shouldConfirmBeforeCreate, 'shouldConfirmBeforeCreate');
+        addCalToggle(t('dayStartsAt4AM'), t('dayStartsAt4AMDesc'), cal.dayStartsAt4AM || false, 'dayStartsAt4AM');
+        addCalToggle(t('showWeekNumber'), t('showWeekNumberDesc'), cal.showWeeklyNote, 'showWeeklyNote', true);
 
         if (cal.showWeeklyNote) {
             containerEl.createEl('h3', { text: t('weeklyNoteSettings') });
             containerEl.createEl('p', { cls: 'setting-item-description', text: t('weeklyNoteSettingsDesc') });
-
-            new Setting(containerEl)
-                .setName(t('weeklyNoteFormat'))
-                .setDesc(t('weeklyNoteFormatDesc'))
-                .addText(textfield => {
-                    textfield.setValue(cal.weeklyNoteFormat);
-                    textfield.setPlaceholder('gggg-[W]ww');
-                    textfield.onChange(async (v) => {
-                        await updateCal({ weeklyNoteFormat: v });
-                    });
-                });
-
-            new Setting(containerEl)
-                .setName(t('weeklyNoteTemplate'))
-                .setDesc(t('weeklyNoteTemplateDesc'))
-                .addText(textfield => {
-                    textfield.setValue(cal.weeklyNoteTemplate);
-                    textfield.onChange(async (v) => {
-                        await updateCal({ weeklyNoteTemplate: v });
-                    });
-                });
-
-            new Setting(containerEl)
-                .setName(t('weeklyNoteFolder'))
-                .setDesc(t('weeklyNoteFolderDesc'))
-                .addText(textfield => {
-                    textfield.setValue(cal.weeklyNoteFolder);
-                    textfield.onChange(async (v) => {
-                        await updateCal({ weeklyNoteFolder: v });
-                    });
-                });
+            addCalText(t('weeklyNoteFormat'), t('weeklyNoteFormatDesc'), cal.weeklyNoteFormat, 'gggg-[W]ww', 'weeklyNoteFormat');
+            addCalText(t('weeklyNoteTemplate'), t('weeklyNoteTemplateDesc'), cal.weeklyNoteTemplate, undefined, 'weeklyNoteTemplate');
+            addCalText(t('weeklyNoteFolder'), t('weeklyNoteFolderDesc'), cal.weeklyNoteFolder, undefined, 'weeklyNoteFolder');
         }
 
         containerEl.createEl('h3', { text: t('monthlyNoteSettings') });
-
-        new Setting(containerEl)
-            .setName(t('monthlyNoteFormat'))
-            .setDesc(t('monthlyNoteFormatDesc'))
-            .addText(textfield => {
-                textfield.setValue(cal.monthlyNoteFormat || 'YYYY-MM[m]');
-                textfield.setPlaceholder('YYYY-MM[m]');
-                textfield.onChange(async (v) => {
-                    await updateCal({ monthlyNoteFormat: v });
-                });
-            });
-
-        new Setting(containerEl)
-            .setName(t('monthlyNoteTemplate'))
-            .setDesc(t('monthlyNoteTemplateDesc'))
-            .addText(textfield => {
-                textfield.setValue(cal.monthlyNoteTemplate || '');
-                textfield.onChange(async (v) => {
-                    await updateCal({ monthlyNoteTemplate: v });
-                });
-            });
-
-        new Setting(containerEl)
-            .setName(t('monthlyNoteFolder'))
-            .setDesc(t('monthlyNoteFolderDesc'))
-            .addText(textfield => {
-                textfield.setValue(cal.monthlyNoteFolder || '');
-                textfield.onChange(async (v) => {
-                    await updateCal({ monthlyNoteFolder: v });
-                });
-            });
+        addCalText(t('monthlyNoteFormat'), t('monthlyNoteFormatDesc'), cal.monthlyNoteFormat, 'YYYY-MM[m]', 'monthlyNoteFormat');
+        addCalText(t('monthlyNoteTemplate'), t('monthlyNoteTemplateDesc'), cal.monthlyNoteTemplate, undefined, 'monthlyNoteTemplate');
+        addCalText(t('monthlyNoteFolder'), t('monthlyNoteFolderDesc'), cal.monthlyNoteFolder, undefined, 'monthlyNoteFolder');
 
         containerEl.createEl('h3', { text: t('quarterlyNoteSettings') });
-
-        new Setting(containerEl)
-            .setName(t('quarterlyNoteFormat'))
-            .setDesc(t('quarterlyNoteFormatDesc'))
-            .addText(textfield => {
-                textfield.setValue(cal.quarterlyNoteFormat || 'YYYY-[Q]Q');
-                textfield.setPlaceholder('YYYY-[Q]Q');
-                textfield.onChange(async (v) => {
-                    await updateCal({ quarterlyNoteFormat: v });
-                });
-            });
-
-        new Setting(containerEl)
-            .setName(t('quarterlyNoteTemplate'))
-            .setDesc(t('quarterlyNoteTemplateDesc'))
-            .addText(textfield => {
-                textfield.setValue(cal.quarterlyNoteTemplate || '');
-                textfield.onChange(async (v) => {
-                    await updateCal({ quarterlyNoteTemplate: v });
-                });
-            });
-
-        new Setting(containerEl)
-            .setName(t('quarterlyNoteFolder'))
-            .setDesc(t('quarterlyNoteFolderDesc'))
-            .addText(textfield => {
-                textfield.setValue(cal.quarterlyNoteFolder || '');
-                textfield.onChange(async (v) => {
-                    await updateCal({ quarterlyNoteFolder: v });
-                });
-            });
+        addCalText(t('quarterlyNoteFormat'), t('quarterlyNoteFormatDesc'), cal.quarterlyNoteFormat, 'YYYY-[Q]Q', 'quarterlyNoteFormat');
+        addCalText(t('quarterlyNoteTemplate'), t('quarterlyNoteTemplateDesc'), cal.quarterlyNoteTemplate, undefined, 'quarterlyNoteTemplate');
+        addCalText(t('quarterlyNoteFolder'), t('quarterlyNoteFolderDesc'), cal.quarterlyNoteFolder, undefined, 'quarterlyNoteFolder');
 
         containerEl.createEl('h3', { text: t('yearlyNoteSettings') });
-
-        new Setting(containerEl)
-            .setName(t('yearlyNoteFormat'))
-            .setDesc(t('yearlyNoteFormatDesc'))
-            .addText(textfield => {
-                textfield.setValue(cal.yearlyNoteFormat || 'YYYY[y]');
-                textfield.setPlaceholder('YYYY[y]');
-                textfield.onChange(async (v) => {
-                    await updateCal({ yearlyNoteFormat: v });
-                });
-            });
-
-        new Setting(containerEl)
-            .setName(t('yearlyNoteTemplate'))
-            .setDesc(t('yearlyNoteTemplateDesc'))
-            .addText(textfield => {
-                textfield.setValue(cal.yearlyNoteTemplate || '');
-                textfield.onChange(async (v) => {
-                    await updateCal({ yearlyNoteTemplate: v });
-                });
-            });
-
-        new Setting(containerEl)
-            .setName(t('yearlyNoteFolder'))
-            .setDesc(t('yearlyNoteFolderDesc'))
-            .addText(textfield => {
-                textfield.setValue(cal.yearlyNoteFolder || '');
-                textfield.onChange(async (v) => {
-                    await updateCal({ yearlyNoteFolder: v });
-                });
-            });
+        addCalText(t('yearlyNoteFormat'), t('yearlyNoteFormatDesc'), cal.yearlyNoteFormat, 'YYYY[y]', 'yearlyNoteFormat');
+        addCalText(t('yearlyNoteTemplate'), t('yearlyNoteTemplateDesc'), cal.yearlyNoteTemplate, undefined, 'yearlyNoteTemplate');
+        addCalText(t('yearlyNoteFolder'), t('yearlyNoteFolderDesc'), cal.yearlyNoteFolder, undefined, 'yearlyNoteFolder');
 
         containerEl.createEl('h3', { text: t('advancedSettings') });
-
-        new Setting(containerEl)
-            .setName(t('localeOverride'))
-            .setDesc(t('localeOverrideDesc'))
-            .addText(textfield => {
-                textfield.setValue(cal.localeOverride || 'system-default');
-                textfield.setPlaceholder('system-default');
-                textfield.onChange(async (v) => {
-                    await updateCal({ localeOverride: v });
-                });
-            });
+        addCalText(t('localeOverride'), t('localeOverrideDesc'), cal.localeOverride, 'system-default', 'localeOverride');
     }
 }

@@ -1,6 +1,7 @@
 import { App, TFile, normalizePath } from 'obsidian';
 import type { TomatoPluginSettings } from './settings';
 import type { TimerMode } from './timer';
+import { addDays } from './utils';
 
 export interface TomatoEntry {
     date: string;     // YYYY-MM-DD (start date)
@@ -33,11 +34,6 @@ const ENTRY_RE = /^- (\d{2}:\d{2}) ~ (\d{2}:\d{2}) \((\d+)m\) \[([^\]]+)\](.*)/;
 export function todayString(): string {
     const n = new Date();
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-}
-
-export function nowTimeString(): string {
-    const n = new Date();
-    return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
 }
 
 export function timeFromDate(d: Date): string {
@@ -164,7 +160,7 @@ export async function getDayMinutes(
         }
     }
 
-    const prevDate = prevDayString(dateStr);
+    const prevDate = addDays(dateStr, -1);
     const prev = await parseDayFile(app, settings, prevDate);
     for (const e of prev.entries) {
         if (isCrossDay(e.startTime, e.endTime)) {
@@ -182,18 +178,6 @@ export function isCrossDay(startTime: string, endTime: string): boolean {
 export function timeToMinutes(time: string): number {
     const [h, m] = time.split(':').map(Number);
     return h * 60 + m;
-}
-
-export function prevDayString(dateStr: string): string {
-    const d = new Date(dateStr + 'T00:00:00');
-    d.setDate(d.getDate() - 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-export function nextDayString(dateStr: string): string {
-    const d = new Date(dateStr + 'T00:00:00');
-    d.setDate(d.getDate() + 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export async function writeDayEntries(

@@ -6,7 +6,7 @@ import { TomatoTimerCompactView, VIEW_TYPE_Tomato_Compact } from './timerViewCom
 import { CalendarView, VIEW_TYPE_CALENDAR, settings as calendarSettings } from './calendar-extended';
 import { DEFAULT_SETTINGS, TomatoSettingTab } from './settings';
 import type { TomatoPluginSettings } from './settings';
-import { appendEntry, nowTimeString, todayString } from './log';
+import { appendEntry, timeFromDate, todayString } from './log';
 import { t, tf } from './i18n';
 import { NotificationService } from './services/notification';
 import { RecoveryService } from './services/recovery';
@@ -179,53 +179,44 @@ export default class TomatoPlugin extends Plugin {
         this.statusBarEl.style.display = this.settings.showStatusBar ? '' : 'none';
     }
 
-    /** Open compact panel (default) */
-    async activateView(): Promise<void> {
-        const { workspace } = this.app;
-        const existing = workspace.getLeavesOfType(VIEW_TYPE_Tomato_Compact);
+    private async ensureView(type: string, leafType: 'tab' | 'right'): Promise<void> {
+        const existing = this.app.workspace.getLeavesOfType(type);
         if (existing.length > 0) {
-            void workspace.revealLeaf(existing[0]);
+            void this.app.workspace.revealLeaf(existing[0]);
             return;
         }
-        const leaf = workspace.getRightLeaf(false);
+        const leaf = leafType === 'tab' ? this.app.workspace.getLeaf('tab') : this.app.workspace.getRightLeaf(false);
         if (leaf) {
-            await leaf.setViewState({ type: VIEW_TYPE_Tomato_Compact, active: true });
-            void workspace.revealLeaf(leaf);
+            await leaf.setViewState({ type, active: true });
+            void this.app.workspace.revealLeaf(leaf);
         }
+    }
+
+    /** Open compact panel (default) */
+    async activateView(): Promise<void> {
+        await this.ensureView(VIEW_TYPE_Tomato_Compact, 'right');
     }
 
     /** Open full panel in the main tab area */
     async activateFullView(): Promise<void> {
-        const { workspace } = this.app;
-        const existing = workspace.getLeavesOfType(VIEW_TYPE_Tomato);
-        if (existing.length > 0) {
-            void workspace.revealLeaf(existing[0]);
-            return;
-        }
-        const leaf = workspace.getLeaf('tab');
-        if (leaf) {
-            await leaf.setViewState({ type: VIEW_TYPE_Tomato, active: true });
-            void workspace.revealLeaf(leaf);
+        await this.ensureView(VIEW_TYPE_Tomato, 'tab');
+    }
+
+    private forEachView<T, R>(type: string, ViewClass: new (...args: any[]) => T, fn: (view: T) => R): void {
+        for (const leaf of this.app.workspace.getLeavesOfType(type)) {
+            if (leaf.view instanceof ViewClass) fn(leaf.view as T);
         }
     }
 
     refreshAllViews(): void {
         const state = this.timer.getState();
-        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato)) {
-            if (leaf.view instanceof TomatoTimerView) leaf.view.updateTimerUI(state);
-        }
-        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato_Compact)) {
-            if (leaf.view instanceof TomatoTimerCompactView) leaf.view.updateTimerUI(state);
-        }
+        this.forEachView(VIEW_TYPE_Tomato, TomatoTimerView, v => v.updateTimerUI(state));
+        this.forEachView(VIEW_TYPE_Tomato_Compact, TomatoTimerCompactView, v => v.updateTimerUI(state));
     }
 
     refreshLogViews(): void {
-        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato)) {
-            if (leaf.view instanceof TomatoTimerView) void leaf.view.refreshTabContent();
-        }
-        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_Tomato_Compact)) {
-            if (leaf.view instanceof TomatoTimerCompactView) void leaf.view.refreshTodayMinutes();
-        }
+        this.forEachView(VIEW_TYPE_Tomato, TomatoTimerView, v => void v.refreshTabContent());
+        this.forEachView(VIEW_TYPE_Tomato_Compact, TomatoTimerCompactView, v => void v.refreshTodayMinutes());
     }
 
     private onTick(state: TimerState): void {
@@ -252,7 +243,7 @@ export default class TomatoPlugin extends Plugin {
                 await appendEntry(this.app, this.settings, {
                     date: this.timer.getSessionStartDate(),
                     startTime: this.timer.getSessionStartTime(),
-                    endTime: nowTimeString(),
+                    endTime: timeFromDate(new Date()),
                     duration: durationMinutes,
                     mode: this.timer.getSessionStartMode(),
                     taskName: this.buildLogTaskName(),

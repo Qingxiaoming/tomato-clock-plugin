@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { App, TFile, TAbstractFile, FileView } from 'obsidian';
+import { App, TFile, TAbstractFile } from 'obsidian';
 import { get } from 'svelte/store';
 import {
     getDailyNote,
@@ -29,6 +29,7 @@ export interface CalendarEmbedAPI {
     prevMonth(): void;
     nextMonth(): void;
     resetMonth(): void;
+    jumpToMonth(date: moment.Moment): void;
     getDisplayedMonth(): moment.Moment;
 }
 
@@ -103,6 +104,7 @@ export function createCalendarEmbed(parent: HTMLElement, app: App): CalendarEmbe
         calendar = new Calendar({
             target: calContainer,
             props: {
+                displayedMonth: window.moment(),
                 onClickDay,
                 onClickWeek,
                 onHoverDay,
@@ -174,8 +176,11 @@ export function createCalendarEmbed(parent: HTMLElement, app: App): CalendarEmbe
         resetMonth() {
             calendar.resetDisplayedMonth();
         },
+        jumpToMonth(date: moment.Moment) {
+            calendar.$set({ displayedMonth: date.clone() });
+        },
         getDisplayedMonth() {
-            return calendar.displayedMonth;
+            return calendar.getDisplayedMonth();
         },
     };
 }

@@ -1,5 +1,8 @@
 // @ts-nocheck
+import type { Moment } from "moment";
 import { Notice, normalizePath, TFile } from "obsidian";
+import type { ISettings } from "../settings";
+import { createConfirmationDialog } from "../ui/modal";
 
 export async function ensureFolderExists(path: string): Promise<void> {
   const dirs = path.replace(/\\/g, "/").split("/");
@@ -99,5 +102,39 @@ export async function createPeriodicNote(
     console.error(`Failed to create file: '${normalizedPath}'`, err);
     new Notice("Unable to create new file.");
     throw err;
+  }
+}
+
+export async function tryCreateNote(
+  date: Moment,
+  inNewSplit: boolean,
+  settingsObj: ISettings,
+  format: string,
+  folder: string,
+  template: string,
+  title: string,
+  cb?: (file: TFile) => void
+): Promise<void> {
+  const { workspace } = window.app;
+  const filename = date.format(format);
+
+  const createFile = async () => {
+    const note = await createPeriodicNote(date, format, folder, template);
+    const leaf = inNewSplit
+      ? workspace.splitActiveLeaf()
+      : workspace.getUnpinnedLeaf();
+    await leaf.openFile(note, { active: true });
+    cb?.(note);
+  };
+
+  if (settingsObj.shouldConfirmBeforeCreate) {
+    createConfirmationDialog({
+      cta: "Create",
+      onAccept: createFile,
+      text: `File ${filename} does not exist. Would you like to create it?`,
+      title,
+    });
+  } else {
+    await createFile();
   }
 }

@@ -61,16 +61,6 @@ interface CoreState {
     currentProject: string;
 }
 
-function nowDateStr(): string {
-    const n = new Date();
-    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-}
-
-function nowTimeStr(): string {
-    const n = new Date();
-    return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
-}
-
 /**
  * 纯函数：根据 cycleIndex 和 cycles 计算当前 phase
  */
@@ -100,15 +90,7 @@ function calcPhaseDuration(phase: PhaseType, settings: TomatoTimerSettings, coun
     }
 }
 
-/**
- * 纯函数：计算番茄钟的下一个 phase
- */
-function calcNextPomodoroPhase(cycleIndex: number, cycles: number): PhaseType {
-    const nextIndex = cycleIndex + 1;
-    if (nextIndex % 2 === 1) return 'work';
-    if (nextIndex % (cycles * 2) === 0) return 'longBreak';
-    return 'shortBreak';
-}
+
 
 export class TomatoTimer {
     private settings: TomatoTimerSettings;
@@ -222,8 +204,9 @@ export class TomatoTimer {
         this.state.status = 'running';
         this.state.segmentStartMs = now;
         this.state.accumulatedMs = 0;
-        this.state.sessionDate = nowDateStr();
-        this.state.sessionTime = nowTimeStr();
+        const n = new Date();
+        this.state.sessionDate = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+        this.state.sessionTime = `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
         this.state.sessionMode = this.state.mode;
 
         this.startInterval();
@@ -440,7 +423,7 @@ export class TomatoTimer {
             this.state.completedTomatos += 1;
         }
 
-        const nextPhase = calcNextPomodoroPhase(this.state.cycleIndex, this.settings.cycles);
+        const nextPhase = calcPhase('pomodoro', this.state.cycleIndex + 1, this.settings.cycles);
         this.onPhaseCb?.(donePhase, nextPhase, durationMinutes);
 
         if (this.settings.autoStartNextPhase && this.state.mode === 'pomodoro') {
