@@ -15,10 +15,12 @@
 ### Dual Panel System
 
 **Compact Panel** — the default sidebar view, minimal and space-efficient:
-- Top: project selector + task name input
-- Middle: vertical progress dots column | large clock | vertical icon buttons (start/pause/stop/reset) | vertical mode switcher column
-- Bottom: current status (left) + today's total duration (right)
-- Double-click the clock to open the full panel
+- Top: **project selector** + **task name input**
+- **Current time row**: large current time + year/month/day/week **periodic note indicator dots** + **mode toggle button**
+- **Today timeline**: grey track + colored segments (recorded sessions) + purple **current-time vertical line**
+- **Timer row**: **phase dot column** (vertical, indicates which pomodoro) | **clock** (large font, double-click to open full panel, right-click for mode actions) | **action button** (play/skip/reset/stop)
+- **Info row**: current status (left) + **today's total duration** (right)
+- **Calendar area**: right-side navigation (month-year label + prev/next arrows) + left-side **calendar-extended embedded month view** (with daily note markers)
 
 **Full Panel** — opened by double-clicking the compact clock, information-rich:
 - Header: title + today's completed tomato count
@@ -26,14 +28,26 @@
 - Project selector + task input + countdown minutes input
 - Tomato progress dots (4 per cycle)
 - Large control buttons (Start/Pause/Resume/Stop/Skip/Reset)
-- Three tabs: Timeline / Stats / History
+- Four tabs: **Calendar** / **List** / **Timesheet** / **Stats**
 
-### Timeline Tab
+### Calendar Tab
 
-- Horizontal 00:00–24:00 time track, colored by project
+- **Day / Week / Month** view modes via the navigation row
+- Horizontal 00:00–24:00 time track, colored bars represent each session
+- Left-side time ruler (00:00 ~ 24:00)
+- Top **project bar** showing project distribution for the current view
+- Right-click a colored bar to **edit that entry's project, task, or duration**
 - Date navigation: previous day / next day / today
-- Legend (project color key) and total duration summary below the track
-- Toggl Track-inspired design
+
+### List Tab
+
+- Record list grouped by date
+- Shows start time, end time, duration, mode, project, and task name for each entry
+
+### Timesheet Tab
+
+- Week-view horizontal time track, Toggl Track-inspired design
+- Date navigation + legend + total duration summary
 
 ### Stats Tab
 
@@ -41,11 +55,14 @@
 - Total duration + tomato count
 - Project distribution (with colored dots)
 - Bar chart trend (daily for week view, weekly for month view, monthly for year view)
-- **Generate Report**: click to create a Markdown report (weekly/monthly/yearly) in the `Reports/` subfolder under your log folder, avoiding recomputation on every switch
+- **Generate Report**: click to create a Markdown report (weekly/monthly/yearly) in the `Reports/` subfolder under your log folder
 
-### History Tab
+### Embedded Calendar (Compact Panel)
 
-- List of today's timer entries with details
+- Month view based on calendar-extended
+- Daily note markers and periodic note markers
+- Click month-year label to jump back to current month
+- Prev/next arrows for paging
 
 ### Logging System
 
@@ -55,13 +72,14 @@
 - **Daily note link**: optionally insert a `[[wikilink]]` to the daily note at the top of each log file (path resolved via Obsidian's core Daily Notes plugin)
 - **Cross-day handling**: entries spanning midnight are written to the start-date file; statistics code fills in the gap
 - **Auto-create folder**: if the log folder does not exist, it is created automatically on first write
+- **Auto-open on complete**: optionally open the day's log file in an adjacent pane when a session ends
 
 ### Project Management
 
 - Add, edit, and delete projects in the settings panel
 - Each project has a custom color
 - Select a project in either panel; it is recorded in logs and statistics
-- Timeline and stats views segment/group by project color
+- Calendar, timeline, and stats views segment/group by project color
 
 ### Internationalization
 
@@ -71,6 +89,7 @@
 ### Status Bar
 
 - Shows remaining time (Pomodoro/Countdown) or elapsed time (Stopwatch) in the Obsidian status bar
+- Three display modes: **full** (time + status), **simple** (timer running indicator only), **hidden**
 - Click the status bar item to open the compact panel
 
 ### Notifications & Sound
@@ -108,16 +127,24 @@ The following commands are available via Ctrl/Cmd+P:
 | Auto-start next phase | On | Automatically start the next phase |
 | Sound alert | On | Beep when a phase ends |
 | OS notification | On | System notification for background use |
+| Status bar mode | Full | Full / Simple / Hidden |
 | Log folder | Tomato Logs | Folder where daily log files are stored |
 | Link daily note | On | Insert a link to the daily note at the top of each log file |
+| Open log on complete | On | Auto-open the day's log file when a session ends |
+| Calendar snap minutes | 5 min | Calendar slot alignment granularity (1/5/10/15/30) |
+| Compact current time font size | 1.7 rem | Font size of the current time row |
+| Compact timer font size | 1.8 rem | Font size of the clock area |
+| Compact current time font | Courier New | Font family for current time row |
+| Compact timer font | Courier New | Font family for the clock |
 | Projects | — | Add/edit/delete projects and colors |
+| Calendar extended settings | — | calendar-extended settings (week start, daily note format, etc.) |
 
 ## Usage
 
 1. Click the ⏱ icon in the left ribbon (or run the "Tomato: Open panel" command) to open the compact panel.
 2. Select a project from the dropdown and enter the current task name.
 3. Click **Start** to begin timing. In Pomodoro mode, work/break phases cycle automatically.
-4. Double-click the clock area in the compact panel to open the full panel and view the timeline, stats, and history.
+4. Double-click the clock area in the compact panel to open the full panel and view Calendar, List, Timesheet, and Stats.
 5. When a session ends, the log is automatically appended to the day's log file. If "Link daily note" is enabled, you can find the log via backlinks from your daily note.
 
 ## Installation
@@ -137,3 +164,4 @@ All data is stored locally:
 - Obsidian Plugin API
 - esbuild
 - Web Audio API (sound synthesis)
+- calendar-extended (embedded calendar)

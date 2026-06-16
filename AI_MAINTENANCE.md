@@ -1,6 +1,6 @@
 # AI Maintenance Guide — Tomato Clock
 
-**Project Summary**: An Obsidian timer plugin (Pomodoro + Stopwatch + Countdown) with dual-panel UI, Toggl Track-style timeline, project-based statistics, daily logging, session recovery, and English/Chinese i18n.
+**Project Summary**: An Obsidian timer plugin (Pomodoro + Stopwatch + Countdown) with dual-panel UI, Toggl Track-style timeline, calendar-extended embedded month view, project-based statistics, daily logging, session recovery, and English/Chinese i18n.
 
 This document is written for AI assistants (and human maintainers) who need to understand, debug, or extend the Tomato Clock Obsidian plugin. Read this before making changes.
 
@@ -36,12 +36,19 @@ This document is written for AI assistants (and human maintainers) who need to u
 │ │ - parseDayFile()               │                      │
 │ │ - appendEntry()                │                      │
 │ └────────────────────────────────┘                      │
+│                                                         │
+│ ┌────────────────────────────────┐                      │
+│ │ calendar-extended              │                      │
+│ │ - createCalendarEmbed()        │                      │
+│ │ - CalendarView                 │                      │
+│ └────────────────────────────────┘                      │
 └─────────────────────────────────────────────────────────┘
 ```
 
 - **Single source of truth**: `TomatoTimer` (timer.ts) holds all runtime timer state. Views are passive consumers.
 - **Plugin owns the timer**: `TomatoPlugin` (main.ts) creates the timer, wires callbacks, and mediates between timer and views.
 - **Views do NOT own state**: they read from `plugin.timer.getState()` and call timer methods like `start()`, `pause()`, `reset()`.
+- **calendar-extended** is a sub-module providing the embedded month calendar in the compact panel and the standalone calendar view.
 
 ---
 
@@ -49,16 +56,17 @@ This document is written for AI assistants (and human maintainers) who need to u
 
 | File | Responsibility |
 |---|---|
-| `src/main.ts` | Plugin entry. Registers views, commands, status bar, ribbon icon. Owns `TomatoTimer` instance. Handles `onPhaseComplete` → writes log → refreshes views. Watches vault `modify` events to refresh full panel history. |
+| `src/main.ts` | Plugin entry. Registers views, commands, status bar, ribbon icon. Owns `TomatoTimer` instance. Handles `onPhaseComplete` → writes log → refreshes views. Watches vault `modify` events to refresh full panel tabs. |
 | `src/timer.ts` | Timer engine. Pure logic, no DOM. Manages Pomodoro cycle, stopwatch elapsed time, countdown remaining time. Emits `onTick` every second and `onPhaseComplete` when a phase ends. Supports recovery via `getRecoveryData()` / `restoreFromRecovery()`. |
-| `src/timerView.ts` | **Full panel** (`VIEW_TYPE_Tomato`). Built with `ItemView`. Has three tabs: Timeline, Stats, History. Contains `buildUI()`, `renderTimeline()`, `renderStats()`, `renderHistory()`. All tab renders go through `refreshTabContent()` which has a concurrency guard (`refreshing` flag). |
-| `src/timerViewCompact.ts` | **Compact panel** (`VIEW_TYPE_Tomato_Compact`). Sidebar leaf. Minimal UI: project select, task input, clock, vertical buttons, mode switcher, today total. Double-clicking the clock calls `plugin.activateFullView()`. |
-| `src/settings.ts` | Settings schema (`TomatoPluginSettings`), defaults, and the settings UI (`TomatoSettingTab`). Includes project management (add/edit/delete + color picker). |
+| `src/timerView.ts` | **Full panel** (`VIEW_TYPE_Tomato`). Built with `ItemView`. Has four tabs: **Calendar**, **List**, **Timesheet**, **Stats**. Contains `buildUI()`, `renderCalendar()`, `renderList()`, `renderTimesheet()`, `renderStats()`. All tab renders go through `refreshTabContent()` which has a concurrency guard (`refreshing` flag). |
+| `src/timerViewCompact.ts` | **Compact panel** (`VIEW_TYPE_Tomato_Compact`). Sidebar leaf. Minimal UI: project select, task input, current time row, **today timeline**, vertical phase dots, clock (dblclick opens full panel, right-click mode menu), action button, status + today minutes, **calendar-extended embedded month view**. |
+| `src/settings.ts` | Settings schema (`TomatoPluginSettings`), defaults, and the settings UI (`TomatoSettingTab`). Includes project management (add/edit/delete + color picker), status bar mode, font settings, and calendar-extended settings. |
 | `src/log.ts` | Log I/O. `appendEntry()` writes to daily files. `parseDayFile()` reads and parses a day's log. `parseProject()` extracts project names from task text. `getDailyNotePath()` resolves daily note paths via Obsidian's internal daily-notes plugin API. |
 | `src/i18n.ts` | Translation dictionary (`dict`). Keys are dot-separated strings (e.g. `panel.btn.start`). `t()` for plain text, `tf()` for interpolated text (`{var}` placeholders). Supported langs: `en`, `zh`. |
 | `src/services/notification.ts` | `NotificationService`. Plays synthesized beep via Web Audio API. Shows browser/OS notification on phase complete. |
 | `src/services/recovery.ts` | `RecoveryService`. Auto-saves `recovery.json` every 10s. Loads on startup to restore timer state. Silently ignores I/O errors. |
-| `src/utils.ts` | Shared utilities: `minutesToHM()`, `formatDate()`, etc. |
+| `src/utils.ts` | Shared utilities: `minutesToHM()`, `formatDate()`, `timeToMinutes()`, `projectColor()`, etc. |
+| `src/calendar-extended/` | Embedded calendar sub-module. Exports `createCalendarEmbed()`, `CalendarView`, and calendar settings. Used by compact panel for the month view and by the plugin for the standalone calendar leaf. |
 | `styles.css` | All plugin styles. Uses Obsidian CSS variables (e.g. `--interactive-accent`, `--background-primary`) for theme compatibility. |
 
 ---
@@ -82,7 +90,7 @@ TomatoTimer.interval ──► onTick(state) ──► main.ts.onTick()
 TomatoTimer ──► onPhaseComplete(completed, next, duration)
     └──► main.ts.onPhaseComplete()
             ├──► appendEntry() → writes YYYY-MM-DD.md
-            ├──► openLogForEditing() → opens file in adjacent pane
+            ├──► openLogForEditing() → opens file in adjacent pane (if enabled)
             ├──► notificationService.notify()
             └──► refresh full panel tabs (via vault 'modify' watcher)
 ```
@@ -94,18 +102,33 @@ TomatoTimer ──► onPhaseComplete(completed, next, duration)
 ```
 refreshTabContent()          [has concurrency lock]
     ├──► tabContentEl.empty()
-    └──► if currentTab == 'timeline' → renderTimeline()
-         │    └──► await parseDayFile()          [async I/O]
+    └──► if currentTab == 'calendar' → renderCalendar()
+         │    └──► await parseLogsForPeriod()          [async I/O]
+         │    └──► build DOM (project bar, grid, ruler, bars)
+         ├──► if currentTab == 'list' → renderList()
+         │    └──► await parseLogsForPeriod()
+         │    └──► build DOM (grouped entry list)
+         ├──► if currentTab == 'timesheet' → renderTimesheet()
+         │    └──► await parseLogsForPeriod()
          │    └──► build DOM (nav, track, legend, summary)
-         ├──► if currentTab == 'stats' → renderStats()
-         │    └──► await parseLogsForPeriod()    [async I/O]
-         │    └──► build DOM (period buttons, charts, report button)
-         └──► if currentTab == 'history' → renderHistory()
-              └──► await parseDayFile(today)
-              └──► build DOM (entry list)
+         └──► if currentTab == 'stats' → renderStats()
+              └──► await parseLogsForPeriod()
+              └──► build DOM (period buttons, charts, report button)
 ```
 
 **Concurrency guard**: `refreshTabContent()` checks `this.refreshing`. If already refreshing, it returns immediately. All user actions (tab clicks, date arrows, "Today" button, period buttons) route through `refreshTabContent()` — **never** call `renderXxx()` directly from event handlers.
+
+### 3.4 Compact Panel Timeline Refresh
+
+```
+renderTodayTimeline()
+    ├──► await parseDayFile()          [async I/O]
+    ├──► compute hash of entries
+    ├──► if data changed OR timeline is empty → rebuild track + segments + current line
+    └──► else → only update current line position
+```
+
+**Important**: The timeline must render even when there are **no entries** (empty track + current line). The `isEmpty` guard ensures the skeleton is built on first call.
 
 ---
 
@@ -123,6 +146,7 @@ refreshTabContent()          [has concurrency lock]
 2. Add default to `DEFAULT_SETTINGS`.
 3. Add UI control in `TomatoSettingTab.display()`.
 4. If the setting affects timer durations, call `this.plugin.applySettings()` in the onChange handler so `TomatoTimer` picks it up.
+5. If the setting affects view appearance, call `this.plugin.refreshAllViews()` in the onChange handler.
 
 ### 4.3 Change timer behavior
 
@@ -130,21 +154,28 @@ refreshTabContent()          [has concurrency lock]
 - If you add new state fields, update `TimerState` interface and `getRecoveryData()` / `restoreFromRecovery()` so session recovery still works.
 - If you add a new phase or mode, update `PhaseType` / `TimerMode` types and add localized status strings in `i18n.ts`.
 
-### 4.4 Modify the Timeline / Stats / History tabs
+### 4.4 Modify the Calendar / List / Timesheet / Stats tabs
 
 - Edit `src/timerView.ts`.
 - Each tab render method receives `this.tabContentEl` (already emptied by `refreshTabContent`).
 - Use `createDiv()`, `createEl()`, `createSpan()` (Obsidian helper APIs) instead of raw `document.createElement`.
 - For async data, `await` inside the render method. The concurrency lock prevents duplicate renders.
 
-### 4.5 Change log format
+### 4.5 Modify the Compact Panel
+
+- Edit `src/timerViewCompact.ts`.
+- `buildUI()` creates the static structure; `updateTimerUI()` updates dynamic text/colors based on timer state.
+- `renderTodayTimeline()` is async and has its own `renderingTimeline` guard.
+- The embedded calendar is created via `createCalendarEmbed()` and stored in `this.calendarEmbed`.
+
+### 4.6 Change log format
 
 - **Write path**: `src/log.ts` → `appendEntry()`.
 - **Read/parse path**: `src/log.ts` → `ENTRY_RE` regex and `parseDayFile()`.
 - **Critical**: if you change the line format, update `ENTRY_RE` to match. Otherwise stats and history will break.
 - Project parsing is done by `parseProject()` using regex `/tomato_project[：:]\s*(\S+)/`.
 
-### 4.6 Add a new command
+### 4.7 Add a new command
 
 - Add to `main.ts` `onload()` in the commands section.
 - Add localized command name to `i18n.ts` under `cmd.*` keys.
@@ -157,7 +188,7 @@ refreshTabContent()          [has concurrency lock]
 
 ❌ Bad:
 ```ts
-btn.addEventListener('click', () => void this.renderTimeline());
+btn.addEventListener('click', () => void this.renderCalendar());
 ```
 
 ✅ Good:
@@ -169,7 +200,7 @@ btn.addEventListener('click', () => void this.refreshTabContent());
 
 ### 5.2 Do not duplicate `el.empty()` inside render methods
 
-`refreshTabContent()` already does `this.tabContentEl.empty()` before dispatching to `renderTimeline()` / `renderStats()` / `renderHistory()`. The render methods should **not** call `el.empty()` themselves (historically this caused race-condition duplicates).
+`refreshTabContent()` already does `this.tabContentEl.empty()` before dispatching to `renderCalendar()` / `renderList()` / `renderTimesheet()` / `renderStats()`. The render methods should **not** call `el.empty()` themselves (historically this caused race-condition duplicates).
 
 ### 5.3 `buildUI()` must be idempotent and guarded
 
@@ -198,6 +229,14 @@ Use `btn.addEventListener(...)` for buttons inside views. `registerDomEvent` is 
 ### 5.8 Avoid importing views into each other
 
 `timerView.ts` and `timerViewCompact.ts` do not import each other. They both import from `main.ts` (to call `activateFullView()` etc.). Keep this one-way dependency.
+
+### 5.9 Timeline must render empty skeleton
+
+`renderTodayTimeline()` must build the track and current line even when `dayRecord.entries` is empty. The `isEmpty` guard (`this.timelineEl.childElementCount === 0`) ensures this. Without it, the timeline only appears after the first logged entry.
+
+### 5.10 Calendar bar edit dialog
+
+In `renderCalendar()`, each bar has a `contextmenu` listener that opens `editEntryDialog()`. This dialog modifies the log file directly via `app.vault.process()`. After editing, the vault `modify` event triggers a refresh.
 
 ---
 
@@ -229,3 +268,7 @@ To test in Obsidian:
 | Entry | One line in a daily log file representing a completed session |
 | Project | User-defined category with a name and color |
 | Recovery | The mechanism that saves/restores timer state across Obsidian restarts |
+| Timeline | The compact panel's horizontal 00:00–24:00 track showing today's logged sessions |
+| Calendar embed | The calendar-extended month view embedded in the compact panel |
+| Project bar | The colored bar at the top of the Calendar tab showing project distribution |
+| Snap minutes | Calendar slot alignment granularity (e.g. 5 min means bars snap to 5-minute boundaries) |
