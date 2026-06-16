@@ -36,6 +36,8 @@ export interface CalendarExtendedSettings {
     localeOverride: string;
 }
 
+export type StatusBarMode = 'full' | 'simple' | 'none';
+
 export interface TomatoPluginSettings {
     workMinutes: number;
     shortBreakMinutes: number;
@@ -50,6 +52,7 @@ export interface TomatoPluginSettings {
     language: Lang;
     projects: ProjectConfig[];
     showStatusBar: boolean;
+    statusBarMode: StatusBarMode;
     openLogOnComplete: boolean;
     calendarSnapMinutes: number;
     compactCurrentTimeFontSize: number;
@@ -75,6 +78,7 @@ export const DEFAULT_SETTINGS: TomatoPluginSettings = {
     language: 'zh',
     projects: [],
     showStatusBar: true,
+    statusBarMode: 'full',
     openLogOnComplete: true,
     calendarSnapMinutes: 5,
     compactCurrentTimeFontSize: 1.7,
@@ -223,7 +227,7 @@ export class TomatoSettingTab extends PluginSettingTab {
         addToggle(_t('settings.autoStart'), _t('settings.autoStartDesc'), this.plugin.settings.autoStartNextPhase, async v => { this.plugin.settings.autoStartNextPhase = v; await this.plugin.saveSettings(); this.plugin.applySettings(); });
         addToggle(_t('settings.sound'), _t('settings.soundDesc'), this.plugin.settings.enableSound, async v => { this.plugin.settings.enableSound = v; await this.plugin.saveSettings(); });
         addToggle(_t('settings.osNotification'), _t('settings.osNotificationDesc'), this.plugin.settings.enableOsNotification, async v => { this.plugin.settings.enableOsNotification = v; await this.plugin.saveSettings(); });
-        addToggle(_t('settings.showStatusBar'), _t('settings.showStatusBarDesc'), this.plugin.settings.showStatusBar, async v => { this.plugin.settings.showStatusBar = v; await this.plugin.saveSettings(); this.plugin.applySettings(); });
+        addDropdown(_t('settings.statusBarMode'), _t('settings.statusBarModeDesc'), { full: '完整模式（显示时间和状态）', simple: '简洁模式（只显示是否计时）', none: '隐藏' }, this.plugin.settings.statusBarMode, async v => { this.plugin.settings.statusBarMode = v as StatusBarMode; await this.plugin.saveSettings(); this.plugin.applySettings(); });
         addDropdown(_t('settings.calendarSnap'), _t('settings.calendarSnapDesc'), { '1': '1 min', '5': '5 min', '10': '10 min', '15': '15 min', '30': '30 min' }, String(this.plugin.settings.calendarSnapMinutes), async v => { this.plugin.settings.calendarSnapMinutes = parseInt(v, 10); await this.plugin.saveSettings(); });
         addSlider(_t('settings.compactCurrentTimeFontSize'), _t('settings.compactCurrentTimeFontSizeDesc'), [0.8, 2.5, 0.1], this.plugin.settings.compactCurrentTimeFontSize, async v => { this.plugin.settings.compactCurrentTimeFontSize = v; await this.plugin.saveSettings(); this.plugin.refreshAllViews(); });
         addSlider(_t('settings.compactTimerFontSize'), _t('settings.compactTimerFontSizeDesc'), [0.8, 2.5, 0.1], this.plugin.settings.compactTimerFontSize, async v => { this.plugin.settings.compactTimerFontSize = v; await this.plugin.saveSettings(); this.plugin.refreshAllViews(); });

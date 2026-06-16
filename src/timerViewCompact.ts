@@ -1,7 +1,7 @@
-import { ItemView, WorkspaceLeaf, setIcon, Menu, TFile } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon, Menu, TFile, normalizePath } from 'obsidian';
 import type { Moment } from 'moment';
 import { get } from 'svelte/store';
-import { getDailyNote } from 'obsidian-daily-notes-interface';
+import { getDailyNote, getDateFromFile } from 'obsidian-daily-notes-interface';
 import type TomatoPlugin from './main';
 import type { TimerState, PhaseType, TimerMode } from './timer';
 import { getDayMinutes, todayString, parseDayFile, timeToMinutes } from './log';
@@ -53,6 +53,17 @@ export class TomatoTimerCompactView extends ItemView {
     private yearDotEl!: HTMLElement;
     private weekDotEl!: HTMLElement;
     private calMonthYearEl!: HTMLElement;
+
+    // Cached DOM refs for updateCurrentTime — avoid querySelector every 30s
+    private cachedYearLabelEl?: HTMLElement;
+    private cachedMonthLabelEl?: HTMLElement;
+    private cachedDayLabelEl?: HTMLElement;
+    private cachedWeekLabelEl?: HTMLElement;
+
+    // Cached periodic notes + task status to avoid re-reading files every 30s
+    private cachedDotDate = '';
+    private cachedDotNotes: { daily?: TFile | null; monthly?: TFile | null; yearly?: TFile | null; weekly?: TFile | null } = {};
+    private cachedDotTaskStatus = new Map<string, boolean>();
 
     private static readonly MODE_ICONS: Record<TimerMode, string> = {
         pomodoro: 'target',
@@ -126,6 +137,10 @@ export class TomatoTimerCompactView extends ItemView {
         const currentRow = root.createDiv({ cls: 'Tomato-compact-current-row' });
         const dateGroup = currentRow.createDiv({ cls: 'Tomato-compact-date-group' });
         this.currentTimeEl = dateGroup.createDiv({ cls: 'Tomato-compact-current-time', text: '--:--' });
+        this.currentTimeEl.style.cursor = 'pointer';
+        this.currentTimeEl.addEventListener('dblclick', () => {
+            void this.openTodayLogFile();
+        });
 
         const makeSection = (labelCls: string, text: string, onClick: () => void): HTMLElement => {
             const section = dateGroup.createDiv({ cls: 'Tomato-compact-date-section' });
@@ -213,6 +228,9 @@ export class TomatoTimerCompactView extends ItemView {
             this.calendarEmbed?.resetMonth();
             this.updateCalendarNav();
         });
+        this.calMonthYearEl.addEventListener('dblclick', () => {
+            void this.jumpToActiveFileMonth();
+        });
         this.calMonthYearEl.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             const current = this.calendarEmbed?.getDisplayedMonth();
@@ -262,6 +280,24 @@ export class TomatoTimerCompactView extends ItemView {
         const m = this.calendarEmbed.getDisplayedMonth();
         if (!m || typeof m.year !== 'function') return;
         this.calMonthYearEl.setText(`${m.year()}年${m.month() + 1}月`);
+    }
+
+    private jumpToActiveFileMonth(): void {
+        const activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile) return;
+
+        // 使用 obsidian-daily-notes-interface 的 getDateFromFile 函数
+        // 按照日记、周记、月记、季度记、年记的顺序尝试解析
+        const date = getDateFromFile(activeFile, 'day')
+            || getDateFromFile(activeFile, 'week')
+            || getDateFromFile(activeFile, 'month')
+            || getDateFromFile(activeFile, 'quarter')
+            || getDateFromFile(activeFile, 'year');
+
+        if (date && date.isValid()) {
+            this.calendarEmbed?.jumpToMonth(date);
+            this.updateCalendarNav();
+        }
     }
 
     private showJumpMonthPopup(e: MouseEvent, currentMonth: Moment | undefined): void {
@@ -635,6 +671,24 @@ export class TomatoTimerCompactView extends ItemView {
             }
         } finally {
             this.renderingTimeline = false;
+        }
+    }
+
+    private async openTodayLogFile(): Promise<void> {
+        const dateStr = todayString();
+        const folder = normalizePath(this.plugin.settings.logFolder);
+        const path = `${folder}/${dateStr}.md`;
+        const file = this.app.vault.getFileByPath(path);
+        if (file instanceof TFile) {
+            await this.app.workspace.getLeaf().openFile(file);
+        } else {
+            // 文件不存在，创建新文件
+            const folderExists = await this.app.vault.adapter.exists(folder);
+            if (!folderExists) {
+                await this.app.vault.adapter.mkdir(folder);
+            }
+            const newFile = await this.app.vault.create(path, '');
+            await this.app.workspace.getLeaf().openFile(newFile);
         }
     }
 

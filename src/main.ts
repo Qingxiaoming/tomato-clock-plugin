@@ -5,7 +5,7 @@ import { TomatoTimerView, VIEW_TYPE_Tomato } from './timerView';
 import { TomatoTimerCompactView, VIEW_TYPE_Tomato_Compact } from './timerViewCompact';
 import { CalendarView, VIEW_TYPE_CALENDAR, settings as calendarSettings } from './calendar-extended';
 import { DEFAULT_SETTINGS, TomatoSettingTab } from './settings';
-import type { TomatoPluginSettings } from './settings';
+import type { TomatoPluginSettings, StatusBarMode } from './settings';
 import { appendEntry, timeFromDate, todayString } from './log';
 import { t, tf } from './i18n';
 import { NotificationService } from './services/notification';
@@ -176,7 +176,9 @@ export default class TomatoPlugin extends Plugin {
     }
 
     toggleStatusBar(): void {
-        this.statusBarEl.style.display = this.settings.showStatusBar ? '' : 'none';
+        // 状态栏的显示/隐藏现在由 refreshStatusBar 统一管理
+        // 这里只需要触发一次刷新即可
+        this.refreshStatusBar(this.timer.getState());
     }
 
     private async ensureView(type: string, leafType: 'tab' | 'right'): Promise<void> {
@@ -290,16 +292,54 @@ export default class TomatoPlugin extends Plugin {
         return task;
     }
 
+    private cachedStatusBarText: string = '';
+    private cachedStatusBarDisplay: string = '';
+
     private refreshStatusBar(state: TimerState): void {
-        const emoji = phaseEmoji(state.phase);
-        if (state.phase === 'idle') {
-            this.statusBarEl.setText(`${emoji} --`);
+        const mode = this.settings.statusBarMode;
+
+        // 隐藏模式：确保状态栏不显示
+        if (mode === 'none') {
+            if (this.cachedStatusBarDisplay !== 'none') {
+                this.statusBarEl.style.display = 'none';
+                this.cachedStatusBarDisplay = 'none';
+            }
             return;
         }
-        const displaySec = state.mode === 'stopwatch' ? state.elapsedSeconds : state.remainingSeconds;
-        const m = String(Math.floor(displaySec / 60)).padStart(2, '0');
-        const s = String(displaySec % 60).padStart(2, '0');
-        this.statusBarEl.setText(`${emoji} ${m}:${s}${state.status === 'running' ? '' : ' ⏸'}`);
+
+        // 确保状态栏可见（非隐藏模式）
+        if (this.cachedStatusBarDisplay !== '') {
+            this.statusBarEl.style.display = '';
+            this.cachedStatusBarDisplay = '';
+        }
+
+        // 简洁模式：只显示暂停/播放图标
+        if (mode === 'simple') {
+            // 计时中显示 ⏸ (暂停图标)，未计时显示 ▶ (播放图标)
+            const newText = state.status === 'running' ? '⏸' : '▶';
+            if (this.cachedStatusBarText !== newText) {
+                this.statusBarEl.setText(newText);
+                this.cachedStatusBarText = newText;
+            }
+            return;
+        }
+
+        // 完整模式：显示时间和状态
+        const emoji = phaseEmoji(state.phase);
+        let newText: string;
+        if (state.phase === 'idle') {
+            newText = `${emoji} --`;
+        } else {
+            const displaySec = state.mode === 'stopwatch' ? state.elapsedSeconds : state.remainingSeconds;
+            const m = String(Math.floor(displaySec / 60)).padStart(2, '0');
+            const s = String(displaySec % 60).padStart(2, '0');
+            newText = `${emoji} ${m}:${s}${state.status === 'running' ? '' : ' ⏸'}`;
+        }
+
+        if (this.cachedStatusBarText !== newText) {
+            this.statusBarEl.setText(newText);
+            this.cachedStatusBarText = newText;
+        }
     }
 
 }
