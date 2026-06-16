@@ -87,6 +87,7 @@ export class TomatoTimerCompactView extends ItemView {
         this.updateTimerUI(this.plugin.timer.getState());
         void this.refreshTodayMinutes();
         this.updateCurrentTime();
+        void this.renderTodayTimeline();
         this.currentTimeInterval = window.setInterval(() => {
             this.updateCurrentTime();
             void this.renderTodayTimeline();
@@ -637,7 +638,8 @@ export class TomatoTimerCompactView extends ItemView {
                 hashParts.push(`${entry.startTime}-${entry.duration}-${entry.project}`);
             }
             const newHash = hashParts.join('|');
-            const dataChanged = this.cachedTimelineHash !== newHash;
+            const isEmpty = this.timelineEl.childElementCount === 0;
+            const dataChanged = this.cachedTimelineHash !== newHash || isEmpty;
 
             if (dataChanged) {
                 this.cachedTimelineHash = newHash;
