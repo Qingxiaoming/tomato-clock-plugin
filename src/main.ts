@@ -10,6 +10,7 @@ import { appendEntry, timeFromDate, todayString } from './log';
 import { t, tf } from './i18n';
 import { NotificationService } from './services/notification';
 import { RecoveryService } from './services/recovery';
+import { SyncService } from './services/sync';
 
 export default class TomatoPlugin extends Plugin {
     settings!: TomatoPluginSettings;
@@ -18,6 +19,7 @@ export default class TomatoPlugin extends Plugin {
     private statusBarEl!: HTMLElement;
     private notificationService!: NotificationService;
     private recoveryService!: RecoveryService;
+    syncService!: SyncService;
 
     t(key: string): string { return t(key, this.settings.language); }
     tf(key: string, vars: Record<string, string | number>): string { return tf(key, this.settings.language, vars); }
@@ -45,6 +47,10 @@ export default class TomatoPlugin extends Plugin {
 
         // Auto-save recovery every 10s
         this.recoveryService.startAutoSave();
+
+        // Sync service
+        this.syncService = new SyncService(this);
+        await this.syncService.init();
 
         // Save recovery on page unload without blocking Obsidian reload
         this.registerDomEvent(window, 'beforeunload', () => {
@@ -80,18 +86,42 @@ export default class TomatoPlugin extends Plugin {
             name: this.t('cmd.startPause'),
             callback: () => {
                 const s = this.timer.getState();
-                if (s.phase === 'idle') this.timer.start();
-                else if (s.status === 'running') this.timer.pause();
-                else this.timer.resume();
+                if (s.phase === 'idle') {
+                    this.timer.start();
+                    const ns = this.timer.getState();
+                    this.syncService?.logOp('start', {
+                        mode: ns.mode,
+                        phase: ns.phase,
+                        project: ns.currentProject,
+                        taskName: ns.taskName,
+                        countdownSec: ns.totalPhaseSeconds,
+                        sessionDate: this.timer.getSessionStartDate(),
+                        sessionTime: this.timer.getSessionStartTime(),
+                    });
+                } else if (s.status === 'running') {
+                    this.timer.pause();
+                    this.syncService?.logOp('pause', {});
+                } else {
+                    this.timer.resume();
+                    this.syncService?.logOp('resume', {});
+                }
             },
         });
-        this.addCommand({ id: 'reset', name: this.t('cmd.reset'), callback: () => this.timer.reset() });
+        this.addCommand({
+            id: 'reset',
+            name: this.t('cmd.reset'),
+            callback: () => {
+                this.timer.reset();
+                this.syncService?.logOp('stop', {});
+            },
+        });
         this.addCommand({ id: 'open', name: this.t('cmd.open'), callback: () => this.activateView() });
         this.addCommand({
             id: 'mode-pomodoro',
             name: this.t('cmd.modePomodoro'),
             callback: () => {
                 this.timer.setMode('pomodoro');
+                this.syncService?.logOp('set_mode', { mode: 'pomodoro' });
                 this.refreshAllViews();
             },
         });
@@ -100,6 +130,7 @@ export default class TomatoPlugin extends Plugin {
             name: this.t('cmd.modeStopwatch'),
             callback: () => {
                 this.timer.setMode('stopwatch');
+                this.syncService?.logOp('set_mode', { mode: 'stopwatch' });
                 this.refreshAllViews();
             },
         });
@@ -109,6 +140,7 @@ export default class TomatoPlugin extends Plugin {
             callback: () => {
                 this.timer.setMode('countdown');
                 this.timer.setCountdownMinutes(this.settings.countdownMinutes);
+                this.syncService?.logOp('set_mode', { mode: 'countdown' });
                 this.refreshAllViews();
             },
         });
@@ -127,6 +159,7 @@ export default class TomatoPlugin extends Plugin {
     onunload(): void {
         void this.recoveryService.save();
         this.recoveryService.stopAutoSave();
+        this.syncService?.destroy();
         this.timer.destroy();
     }
 
@@ -241,18 +274,28 @@ export default class TomatoPlugin extends Plugin {
         this.notificationService.beep();
 
         if (completed === 'work' || completed === 'stopwatch' || completed === 'countdown') {
+            const entry = {
+                date: this.timer.getSessionStartDate(),
+                startTime: this.timer.getSessionStartTime(),
+                endTime: timeFromDate(new Date()),
+                duration: durationMinutes,
+                mode: this.timer.getSessionStartMode(),
+                taskName: this.buildLogTaskName(),
+            };
             try {
-                await appendEntry(this.app, this.settings, {
-                    date: this.timer.getSessionStartDate(),
-                    startTime: this.timer.getSessionStartTime(),
-                    endTime: timeFromDate(new Date()),
-                    duration: durationMinutes,
-                    mode: this.timer.getSessionStartMode(),
-                    taskName: this.buildLogTaskName(),
-                });
+                await appendEntry(this.app, this.settings, entry);
             } catch (e) {
                 new Notice(`${this.t('notice.logWriteFailed')}: ${e instanceof Error ? e.message : String(e)}`, 6000);
             }
+            const actualNext = this.timer.getState().phase === 'idle' ? 'idle' : _next;
+            this.syncService?.logPhaseComplete(completed, actualNext as PhaseType, durationMinutes, {
+                date: entry.date,
+                startTime: entry.startTime,
+                endTime: entry.endTime,
+                duration: entry.duration,
+                mode: entry.mode,
+                taskName: entry.taskName,
+            });
             if (this.settings.openLogOnComplete) {
                 await this.openLogForEditing();
             }
@@ -283,7 +326,7 @@ export default class TomatoPlugin extends Plugin {
         }
     }
 
-    private buildLogTaskName(): string {
+    buildLogTaskName(): string {
         const project = this.timer.getCurrentProject();
         const task = this.timer.getTaskName();
         if (project) {

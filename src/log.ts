@@ -86,7 +86,7 @@ export async function appendEntry(
     const folder = normalizePath(settings.logFolder);
     const path = normalizePath(logFilePath(settings, entry.date));
     const taskPart = entry.taskName ? ` ${entry.taskName}` : '';
-    const line = `- ${entry.startTime} ~ ${entry.endTime} (${entry.duration}m) [${entry.mode}]${taskPart}\n`;
+    const line = `- ${entry.startTime} ~ ${entry.endTime} (${entry.duration}m) [${entry.mode}]${taskPart}`;
 
     // Ensure log folder exists
     const folderExists = await app.vault.adapter.exists(folder);
@@ -94,23 +94,61 @@ export async function appendEntry(
         await app.vault.adapter.mkdir(folder);
     }
 
-    const existing = app.vault.getFileByPath(path);
-    if (!(existing instanceof TFile)) {
-        let header = '';
-        if (settings.enableDailyNoteLink) {
-            const dailyPath = getDailyNotePath(app, entry.date);
-            if (dailyPath) {
-                header = `[[${dailyPath}]]\n\n`;
-            }
+    // 先尝试用 adapter 读取已有内容，绕过 TFile 缓存延迟
+    let content = '';
+    let exists = false;
+    try {
+        content = await app.vault.adapter.read(path);
+        exists = true;
+    } catch {
+        exists = false;
+    }
+
+    if (exists) {
+        // 去重：如果最后一行或任意一行已经包含相同记录，直接跳过
+        const lines = content.split('\n').map(l => l.trim());
+        if (lines.includes(line.trim())) {
+            return;
         }
-        await app.vault.create(path, `${header}${line}`);
+        const sep = content.endsWith('\n') ? '' : '\n';
+        await app.vault.adapter.write(path, `${content}${sep}${line}\n`);
         return;
     }
 
-    await app.vault.process(existing, (content) => {
-        const sep = content.endsWith('\n') ? '' : '\n';
-        return `${content}${sep}${line}`;
-    });
+    // 文件不存在，尝试 vault.create（这会正确建立 Obsidian 索引）
+    let header = '';
+    if (settings.enableDailyNoteLink) {
+        const dailyPath = getDailyNotePath(app, entry.date);
+        if (dailyPath) {
+            header = `[[${dailyPath}]]\n\n`;
+        }
+    }
+
+    try {
+        await app.vault.create(path, `${header}${line}\n`);
+    } catch (e: any) {
+        // Obsidian Sync 可能在 getFileByPath 和 create 之间把文件建好了
+        if (e?.message?.includes('already exists')) {
+            // 等待索引刷新
+            await new Promise(r => setTimeout(r, 300));
+            let existingContent = '';
+            try {
+                existingContent = await app.vault.adapter.read(path);
+            } catch {
+                // adapter 也读不到，再试一次 create（可能是别的路径冲突）
+                await app.vault.create(path, `${header}${line}\n`);
+                return;
+            }
+            const lines = existingContent.split('\n').map(l => l.trim());
+            if (lines.includes(line.trim())) {
+                return;
+            }
+            const sep = existingContent.endsWith('\n') ? '' : '\n';
+            await app.vault.adapter.write(path, `${existingContent}${sep}${line}\n`);
+            return;
+        }
+        throw e;
+    }
 }
 
 export async function parseDayFile(
@@ -214,5 +252,3 @@ export async function writeDayEntries(
         await app.vault.create(path, content);
     }
 }
-
-

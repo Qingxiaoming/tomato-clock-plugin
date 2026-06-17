@@ -123,6 +123,7 @@ export class TomatoTimerCompactView extends ItemView {
         this.projectSelect = topRow.createEl('select', { cls: 'Tomato-compact-project-select' });
         this.registerDomEvent(this.projectSelect, 'change', () => {
             this.plugin.timer.setCurrentProject(this.projectSelect.value);
+            this.plugin.syncService?.logOp('set_project', { project: this.projectSelect.value });
         });
         this.renderProjectSelect();
 
@@ -132,6 +133,7 @@ export class TomatoTimerCompactView extends ItemView {
         });
         this.registerDomEvent(this.taskInput, 'input', () => {
             this.plugin.timer.setTaskName(this.taskInput.value);
+            this.plugin.syncService?.logOp('set_task', { taskName: this.taskInput.value });
         });
 
         /* ── Current time row: time | year | month | day | week | mode switch ── */
@@ -411,7 +413,10 @@ export class TomatoTimerCompactView extends ItemView {
             menu.addItem((item) => {
                 item.setTitle(this.plugin.t('panel.btn.reset'))
                     .setIcon('rotate-ccw')
-                    .onClick(() => this.plugin.timer.reset());
+                    .onClick(() => {
+                        this.plugin.timer.reset();
+                        this.plugin.syncService?.logOp('stop', {});
+                    });
             });
         }
         menu.showAtMouseEvent(evt);
@@ -500,13 +505,22 @@ export class TomatoTimerCompactView extends ItemView {
         const s = this.plugin.timer.getState();
         if (s.phase === 'idle') {
             this.plugin.timer.start();
+            const ns = this.plugin.timer.getState();
+            this.plugin.syncService?.logOp('start', {
+                mode: ns.mode,
+                phase: ns.phase,
+                project: ns.currentProject,
+                taskName: ns.taskName,
+            });
             return;
         }
         const mode = this.plugin.timer.getMode();
         if (mode === 'countdown') {
             this.plugin.timer.reset();
+            this.plugin.syncService?.logOp('stop', {});
         } else {
             this.plugin.timer.skip();
+            this.plugin.syncService?.logOp('skip', {});
         }
     }
 

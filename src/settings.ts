@@ -62,6 +62,8 @@ export interface TomatoPluginSettings {
     compactDateFontFamilyCn: string;
     compactDateFontFamilyEn: string;
     calendarExtended: CalendarExtendedSettings;
+    syncFilePath: string;
+    syncDeviceId: string;
 }
 
 export const DEFAULT_SETTINGS: TomatoPluginSettings = {
@@ -88,6 +90,8 @@ export const DEFAULT_SETTINGS: TomatoPluginSettings = {
     compactDateFontFamilyCn: "system-ui, -apple-system, sans-serif",
     compactDateFontFamilyEn: "'Courier New', Courier, monospace",
     calendarExtended: { ...(calendarDefaultSettings as unknown as CalendarExtendedSettings) },
+    syncFilePath: 'sync/Tomato Sync.md',
+    syncDeviceId: '',
 };
 
 export class TomatoSettingTab extends PluginSettingTab {
@@ -299,6 +303,23 @@ export class TomatoSettingTab extends PluginSettingTab {
                     this.plugin.refreshAllViews();
                     this.plugin.refreshLogViews();
                 }));
+
+        // --- Sync ---
+        new Setting(containerEl).setHeading().setName('多端同步');
+        new Setting(containerEl)
+            .setName('同步文件路径')
+            .setDesc('用于多端状态同步的文件路径，相对于 vault 根目录')
+            .addText(t => t.setPlaceholder('sync/Tomato Sync.md').setValue(this.plugin.settings.syncFilePath).onChange(async v => {
+                this.plugin.settings.syncFilePath = v.trim() || 'sync/Tomato Sync.md';
+                await this.plugin.saveSettings();
+            }));
+        new Setting(containerEl)
+            .setName('设备标识')
+            .setDesc('本设备的唯一标识，自动生成，通常无需修改')
+            .addText(t => t.setValue(this.plugin.settings.syncDeviceId).onChange(async v => {
+                this.plugin.settings.syncDeviceId = v.trim();
+                await this.plugin.saveSettings();
+            }));
     }
 
     private renderCalendarSettings(containerEl: HTMLElement): void {

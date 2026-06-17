@@ -53,6 +53,7 @@ interface CoreState {
     segmentStartMs: number;
     accumulatedMs: number;
     countdownSec: number;
+    totalPhaseSeconds: number;
     completedTomatos: number;
     sessionDate: string;
     sessionTime: string;
@@ -116,6 +117,7 @@ export class TomatoTimer {
             segmentStartMs: 0,
             accumulatedMs: 0,
             countdownSec: mode === 'countdown' ? this.settings.countdownMinutes * 60 : 0,
+            totalPhaseSeconds: 0,
             completedTomatos: 0,
             sessionDate: '',
             sessionTime: '',
@@ -164,6 +166,8 @@ export class TomatoTimer {
     getSessionStartDate(): string { return this.state.sessionDate; }
     getSessionStartTime(): string { return this.state.sessionTime; }
     getSessionStartMode(): TimerMode { return this.state.sessionMode; }
+    getSegmentStartMs(): number { return this.state.segmentStartMs; }
+    getAccumulatedMs(): number { return this.state.accumulatedMs; }
 
     adjustSessionStart(minuteDelta: number): void {
         const [h, m] = this.state.sessionTime.split(':').map(Number);
@@ -367,7 +371,7 @@ export class TomatoTimer {
 
     // ========== 私有方法 ==========
 
-    private getElapsedMs(): number {
+    getElapsedMs(): number {
         if (this.state.status === 'idle') return 0;
         const currentSegment = this.state.status === 'running' ? Date.now() - this.state.segmentStartMs : 0;
         return this.state.accumulatedMs + currentSegment;
@@ -446,6 +450,36 @@ export class TomatoTimer {
         this.state.cycleIndex = 0;
         this.state.accumulatedMs = 0;
         this.state.segmentStartMs = 0;
+    }
+
+    /**
+     * 从同步状态直接应用状态，不触发 onPhaseCb。
+     * 用于多端同步时接收远程状态更新。
+     */
+    applySyncState(patch: Partial<CoreState>): void {
+        if (patch.mode !== undefined) this.state.mode = patch.mode;
+        if (patch.phase !== undefined) this.state.phase = patch.phase;
+        if (patch.status !== undefined) this.state.status = patch.status;
+        if (patch.cycleIndex !== undefined) this.state.cycleIndex = patch.cycleIndex;
+        if (patch.segmentStartMs !== undefined) this.state.segmentStartMs = patch.segmentStartMs;
+        if (patch.accumulatedMs !== undefined) this.state.accumulatedMs = patch.accumulatedMs;
+        if (patch.countdownSec !== undefined) this.state.countdownSec = patch.countdownSec;
+        if (patch.totalPhaseSeconds !== undefined) this.state.totalPhaseSeconds = patch.totalPhaseSeconds;
+        if (patch.completedTomatos !== undefined) this.state.completedTomatos = patch.completedTomatos;
+        if (patch.sessionDate !== undefined) this.state.sessionDate = patch.sessionDate;
+        if (patch.sessionTime !== undefined) this.state.sessionTime = patch.sessionTime;
+        if (patch.sessionMode !== undefined) this.state.sessionMode = patch.sessionMode;
+        if (patch.taskName !== undefined) this.state.taskName = patch.taskName;
+        if (patch.currentProject !== undefined) this.state.currentProject = patch.currentProject;
+
+        // 同步状态后校正 interval
+        if (this.state.status === 'running' && this.intervalId === null) {
+            this.startInterval();
+        } else if (this.state.status !== 'running' && this.intervalId !== null) {
+            this.stopInterval();
+        }
+
+        this.notifyTick();
     }
 
     private notifyTick(): void {
