@@ -75,7 +75,7 @@ export class MobileLocalSyncAdapter implements SyncAdapter {
             // 文件不存在，从空内容开始
         }
         content += line + '\n';
-        file.write(content);
+        await file.write(content);
     }
 
     async readStateCache(): Promise<string | null> {
