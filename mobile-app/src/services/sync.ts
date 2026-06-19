@@ -1,11 +1,11 @@
 import { Paths } from 'expo-file-system';
-import type { TomatoTimer, PhaseType, TimerMode, TimerStatus } from './timer';
+import type { TomatoTimer, PhaseType } from './timer';
 import { SyncEngine } from '../sync';
 import type { SyncAdapter, ConflictResolution, RunningSession, SyncEngineState } from '../sync';
 import { MobileLocalSyncAdapter } from './syncAdapter';
 import { AsyncStorageLocalStore } from './localStore';
 
-/** 旧版操作类型，保留以兼容调用代码 */
+/** 外部调用使用的操作类型 */
 export type SyncOpType =
     | 'start'
     | 'stop'
@@ -14,35 +14,6 @@ export type SyncOpType =
     | 'set_project'
     | 'set_task'
     | 'phase_complete';
-
-/** 旧版操作记录，保留导出以兼容外部代码 */
-export interface SyncOp {
-    ts: number;
-    uuid: string;
-    device: string;
-    op: SyncOpType;
-    payload: Record<string, unknown>;
-}
-
-/** 旧版状态快照，保留导出以兼容外部代码 */
-export interface SyncStateSnapshot {
-    mode: TimerMode;
-    phase: PhaseType;
-    status: TimerStatus;
-    cycleIndex: number;
-    segmentStartMs: number;
-    accumulatedMs: number;
-    countdownSec: number;
-    completedTomatos: number;
-    sessionDate: string;
-    sessionTime: string;
-    sessionMode: TimerMode;
-    taskName: string;
-    currentProject: string;
-    lastOpTs: number;
-    lastOpId: string;
-    todayMinutes: number;
-}
 
 function generateUUID(): string {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -53,9 +24,9 @@ function generateUUID(): string {
 }
 
 /**
- * 多端同步服务（新版）
+ * 多端同步服务
  *
- * 底层基于事件溯源引擎（SyncEngine），对外保持旧版方法签名不变。
+ * 底层基于事件溯源引擎（SyncEngine）。
  * start/stop/skip/phase_complete 会映射为 start/end 操作；
  * set_mode/set_project/set_task 会同步为对应配置操作。
  */
@@ -134,7 +105,7 @@ export class SyncService {
         }
     }
 
-    // ========== 对外 API：记录操作（旧版签名） ==========
+    // ========== 对外 API：记录操作 ==========
 
     logOp(op: SyncOpType, payload: Record<string, unknown>): void {
         if (!this.engine) return;
@@ -178,7 +149,6 @@ export class SyncService {
         const note = entry.taskName || entry.mode ? `${entry.mode || ''} ${entry.taskName || ''}`.trim() : undefined;
         void this.engine.end(undefined, note ? { note } : undefined);
 
-        // 保留旧版回调行为
         if (entry.date && entry.duration !== undefined) {
             this.onLogAppend?.({
                 date: entry.date,
@@ -193,8 +163,7 @@ export class SyncService {
     }
 
     /**
-     * 旧版方法，保留以兼容调用代码。
-     * 新版中直接触发一次 engine.sync()。
+     * 触发一次 engine.sync()。
      */
     async loadFromSyncFile(): Promise<void> {
         await this.engine?.sync();

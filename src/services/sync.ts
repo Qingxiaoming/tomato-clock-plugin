@@ -1,11 +1,11 @@
 import { App, type EventRef, normalizePath } from 'obsidian';
 import type TomatoPlugin from '../main';
-import type { PhaseType, TimerMode, TimerStatus } from '../timer';
+import type { PhaseType } from '../timer';
 import { SyncEngine } from '../sync';
 import { ObsidianSyncAdapter, ObsidianLocalStore } from '../sync/adapter';
 import type { ConflictResolution, RunningSession, SyncEngineState } from '../sync';
 
-/** 旧版操作类型，保留以兼容 UI 调用代码 */
+/** 外部调用使用的操作类型 */
 export type SyncOpType =
     | 'start'
     | 'stop'
@@ -14,35 +14,6 @@ export type SyncOpType =
     | 'set_project'
     | 'set_task'
     | 'phase_complete';
-
-/** 旧版操作记录，保留导出以兼容外部代码 */
-export interface SyncOp {
-    ts: number;
-    uuid: string;
-    device: string;
-    op: SyncOpType;
-    payload: Record<string, unknown>;
-}
-
-/** 旧版状态快照，保留导出以兼容外部代码 */
-export interface SyncStateSnapshot {
-    mode: TimerMode;
-    phase: PhaseType;
-    status: TimerStatus;
-    cycleIndex: number;
-    segmentStartMs: number;
-    accumulatedMs: number;
-    countdownSec: number;
-    completedTomatos: number;
-    sessionDate: string;
-    sessionTime: string;
-    sessionMode: TimerMode;
-    taskName: string;
-    currentProject: string;
-    lastOpTs: number;
-    lastOpId: string;
-    todayMinutes: number;
-}
 
 function generateUUID(): string {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -53,9 +24,9 @@ function generateUUID(): string {
 }
 
 /**
- * 多端同步服务（新版）
+ * 多端同步服务
  *
- * 底层基于事件溯源引擎（SyncEngine），对外保持旧版方法签名不变。
+ * 底层基于事件溯源引擎（SyncEngine）。
  * start/stop/skip/phase_complete 会映射为 start/end 操作；
  * set_mode/set_project/set_task 会同步为对应配置操作。
  */
@@ -139,7 +110,7 @@ export class SyncService {
         }
     }
 
-    // ========== 对外 API：记录操作（旧版签名） ==========
+    // ========== 对外 API：记录操作 ==========
 
     logOp(op: SyncOpType, payload: Record<string, unknown>): void {
         switch (op) {
