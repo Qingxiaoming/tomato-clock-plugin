@@ -1,6 +1,6 @@
 export type PhaseType = 'work' | 'shortBreak' | 'longBreak' | 'idle' | 'stopwatch' | 'countdown';
 export type TimerMode = 'pomodoro' | 'stopwatch' | 'countdown';
-export type TimerStatus = 'idle' | 'running' | 'paused';
+export type TimerStatus = 'idle' | 'running';
 
 export interface TomatoTimerSettings {
     workMinutes: number;
@@ -26,7 +26,8 @@ export interface TimerState {
 export interface RecoveryData {
     mode: TimerMode;
     phase: PhaseType;
-    status: TimerStatus;
+    /** 旧版 recovery 可能包含 paused，新版不再支持 */
+    status: TimerStatus | 'paused';
     accumulatedMs: number;
     cycleIndex: number;
     taskName: string;
@@ -217,25 +218,6 @@ export class TomatoTimer {
         this.notifyTick();
     }
 
-    pause(): void {
-        if (this.state.status !== 'running') return;
-
-        this.state.accumulatedMs += Date.now() - this.state.segmentStartMs;
-        this.state.status = 'paused';
-        this.stopInterval();
-        this.notifyTick();
-    }
-
-    resume(): void {
-        if (this.state.status !== 'paused') return;
-        if (this.state.mode !== 'stopwatch' && this.getRemainingMs() <= 0) return;
-
-        this.state.status = 'running';
-        this.state.segmentStartMs = Date.now();
-        this.startInterval();
-        this.notifyTick();
-    }
-
     stop(): void {
         if (this.state.status === 'idle') return;
 
@@ -331,7 +313,8 @@ export class TomatoTimer {
     restoreFromRecovery(data: RecoveryData): void {
         this.state.mode = data.mode;
         this.state.phase = data.phase;
-        this.state.status = data.status;
+        // 旧版 recovery 可能保存 paused 状态，新版不再支持暂停，统一视为 idle
+        this.state.status = data.status === 'paused' ? 'idle' : data.status;
         this.state.cycleIndex = data.cycleIndex;
         this.state.taskName = data.taskName;
         this.state.currentProject = data.currentProject ?? '';
@@ -373,8 +356,7 @@ export class TomatoTimer {
 
     getElapsedMs(): number {
         if (this.state.status === 'idle') return 0;
-        const currentSegment = this.state.status === 'running' ? Date.now() - this.state.segmentStartMs : 0;
-        return this.state.accumulatedMs + currentSegment;
+        return this.state.accumulatedMs + (Date.now() - this.state.segmentStartMs);
     }
 
     private getElapsedSec(): number {
@@ -389,19 +371,27 @@ export class TomatoTimer {
 
     private startInterval(): void {
         this.stopInterval();
-        this.intervalId = window.setInterval(() => this.tick(), 1000);
+        this.intervalId = -1;
+        this.scheduleTick();
     }
 
     private stopInterval(): void {
-        if (this.intervalId !== null) {
-            window.clearInterval(this.intervalId);
-            this.intervalId = null;
+        if (this.intervalId !== null && this.intervalId !== -1) {
+            window.clearTimeout(this.intervalId);
         }
+        this.intervalId = null;
+    }
+
+    private scheduleTick(): void {
+        if (this.intervalId === null) return;
+        const drift = Date.now() % 1000;
+        this.intervalId = window.setTimeout(() => this.tick(), Math.max(16, 1000 - drift));
     }
 
     private tick(): void {
         if (this.state.mode === 'stopwatch') {
             this.notifyTick();
+            this.scheduleTick();
             return;
         }
 
@@ -412,6 +402,7 @@ export class TomatoTimer {
             this.handlePhaseComplete(donePhase, durationMin);
         } else {
             this.notifyTick();
+            this.scheduleTick();
         }
     }
 

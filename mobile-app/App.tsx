@@ -2,13 +2,13 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, TextInput, ScrollView, Alert, Switch } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { documentDirectory } from 'expo-file-system';
+import { Paths } from 'expo-file-system';
+
 import { TomatoTimer, type TimerState, type TimerMode } from './src/services/timer';
 import { SyncService } from './src/services/sync';
-import { LocalFileAdapter, WebDAVAdapter } from './src/services/syncAdapter';
+import { MobileLocalSyncAdapter, MobileWebDAVSyncAdapter } from './src/services/syncAdapter';
 
 const SETTINGS = {
   workMinutes: 25,
@@ -33,7 +33,7 @@ interface WebDAVConfig {
   url: string;
   username: string;
   password: string;
-  filePath: string;
+  syncDir: string;
 }
 
 export default function App() {
@@ -46,7 +46,7 @@ export default function App() {
     url: 'https://dav.jianguoyun.com/dav/',
     username: '',
     password: '',
-    filePath: '/Obsidian/Tomato Sync.md',
+    syncDir: '/Obsidian/timer-sync',
   });
   const [showSettings, setShowSettings] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
@@ -75,10 +75,19 @@ export default function App() {
     AsyncStorage.getItem(WEBDAV_CONFIG_KEY).then(raw => {
       if (raw) {
         try {
-          const cfg = JSON.parse(raw) as WebDAVConfig;
+          const loaded = JSON.parse(raw) as WebDAVConfig & { filePath?: string };
+          // 从旧版 filePath 迁移到 syncDir
+          if (!loaded.syncDir && loaded.filePath) {
+            const normalized = loaded.filePath.replace(/\/?$/, '');
+            const lastSlash = normalized.lastIndexOf('/');
+            const parent = lastSlash >= 0 ? normalized.substring(0, lastSlash) : '';
+            loaded.syncDir = parent ? `${parent}/timer-sync` : '/timer-sync';
+            void AsyncStorage.setItem(WEBDAV_CONFIG_KEY, JSON.stringify(loaded));
+          }
+          const cfg = loaded;
           setWebdavConfig(cfg);
           if (cfg.enabled && cfg.url && cfg.username && cfg.password) {
-            sync.setAdapter(new WebDAVAdapter(cfg.url, cfg.username, cfg.password, cfg.filePath));
+            sync.setAdapter(new MobileWebDAVSyncAdapter(cfg.url, cfg.username, cfg.password, cfg.syncDir));
           }
         } catch {
           // ignore
@@ -103,7 +112,7 @@ export default function App() {
     if (!sync) return;
 
     if (cfg.enabled && cfg.url && cfg.username && cfg.password) {
-      sync.setAdapter(new WebDAVAdapter(cfg.url, cfg.username, cfg.password, cfg.filePath));
+      sync.setAdapter(new MobileWebDAVSyncAdapter(cfg.url, cfg.username, cfg.password, cfg.syncDir));
       setSyncStatus('syncing');
       try {
         await sync.loadFromSyncFile();
@@ -113,9 +122,8 @@ export default function App() {
         setSyncStatus('error');
       }
     } else {
-      const dir = (documentDirectory || '').replace(/\/?$/, '/');
-      const defaultUri = dir + encodeURIComponent('Tomato Sync.md');
-      sync.setAdapter(new LocalFileAdapter(defaultUri));
+      const dir = Paths.document.uri.replace(/\/?$/, '/');
+      sync.setAdapter(new MobileLocalSyncAdapter(dir + 'timer-sync'));
     }
   }, []);
 
@@ -126,14 +134,11 @@ export default function App() {
       timer.start();
       const ns = timer.getState();
       sync?.logOp('start', { mode: ns.mode, phase: ns.phase, project: ns.currentProject, taskName: ns.taskName, countdownSec: ns.totalPhaseSeconds, sessionDate: timer.getSessionStartDate(), sessionTime: timer.getSessionStartTime() });
-    } else if (state.status === 'running') {
-      timer.pause();
-      sync?.logOp('pause', {});
     } else {
-      timer.resume();
-      sync?.logOp('resume', {});
+      timer.stop();
+      sync?.logOp('stop', {});
     }
-  }, [state.phase, state.status]);
+  }, [state.phase]);
 
   const handleReset = useCallback(() => {
     timerRef.current.reset();
@@ -159,22 +164,6 @@ export default function App() {
     timerRef.current.setTaskName(task);
     syncRef.current?.logOp('set_task', { taskName: task });
   }, []);
-
-  const pickLocalSyncFile = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({ type: 'text/markdown', copyToCacheDirectory: true });
-      if (!result.canceled && result.assets.length > 0) {
-        const uri = result.assets[0].uri;
-        const sync = syncRef.current;
-        if (sync) {
-          sync.setAdapter(new LocalFileAdapter(uri));
-          await sync.loadFromSyncFile();
-        }
-      }
-    } catch (e) {
-      Alert.alert('选择文件失败', String(e));
-    }
-  };
 
   const shareSyncFile = async () => {
     const sync = syncRef.current;
@@ -208,7 +197,6 @@ export default function App() {
               config={webdavConfig}
               onChange={saveWebDAVConfig}
               syncStatus={syncStatus}
-              onPickLocalFile={pickLocalSyncFile}
             />
           ) : (
             <>
@@ -311,11 +299,10 @@ export default function App() {
   );
 }
 
-function SettingsPanel({ config, onChange, syncStatus, onPickLocalFile }: {
+function SettingsPanel({ config, onChange, syncStatus }: {
   config: WebDAVConfig;
   onChange: (cfg: WebDAVConfig) => void;
   syncStatus: 'idle' | 'syncing' | 'error';
-  onPickLocalFile: () => void;
 }) {
   const [local, setLocal] = useState(config);
 
@@ -355,12 +342,12 @@ function SettingsPanel({ config, onChange, syncStatus, onPickLocalFile }: {
             secureTextEntry
             autoCapitalize="none"
           />
-          <Text style={styles.settingHint}>文件路径（相对于 WebDAV 根目录）</Text>
+          <Text style={styles.settingHint}>同步目录（相对于 WebDAV 根目录）</Text>
           <TextInput
             style={styles.settingInput}
-            value={local.filePath}
-            onChangeText={v => setLocal({ ...local, filePath: v })}
-            placeholder="/Obsidian/Tomato Sync.md"
+            value={local.syncDir}
+            onChangeText={v => setLocal({ ...local, syncDir: v })}
+            placeholder="/Obsidian/timer-sync"
             autoCapitalize="none"
           />
           <Text style={styles.settingTip}>
@@ -371,9 +358,7 @@ function SettingsPanel({ config, onChange, syncStatus, onPickLocalFile }: {
       ) : (
         <>
           <Text style={styles.settingHint}>使用本地文件模式</Text>
-          <TouchableOpacity style={styles.settingBtn} onPress={onPickLocalFile}>
-            <Text style={styles.settingBtnText}>选择本地同步文件</Text>
-          </TouchableOpacity>
+          <Text style={styles.settingTip}>默认同步目录：{Paths.document.uri}timer-sync</Text>
         </>
       )}
 

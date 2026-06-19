@@ -62,7 +62,8 @@ export interface TomatoPluginSettings {
     compactDateFontFamilyCn: string;
     compactDateFontFamilyEn: string;
     calendarExtended: CalendarExtendedSettings;
-    syncFilePath: string;
+    /** 同步目录路径（相对于 vault 根目录） */
+    syncDir: string;
     syncDeviceId: string;
 }
 
@@ -90,7 +91,8 @@ export const DEFAULT_SETTINGS: TomatoPluginSettings = {
     compactDateFontFamilyCn: "system-ui, -apple-system, sans-serif",
     compactDateFontFamilyEn: "'Courier New', Courier, monospace",
     calendarExtended: { ...(calendarDefaultSettings as unknown as CalendarExtendedSettings) },
-    syncFilePath: 'sync/Tomato Sync.md',
+    /** 同步目录，留空则自动使用插件目录下的 timer-sync */
+    syncDir: '',
     syncDeviceId: '',
 };
 
@@ -283,6 +285,7 @@ export class TomatoSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                         if (this.plugin.timer.getCurrentProject() === deleted) {
                             this.plugin.timer.setCurrentProject('');
+                            this.plugin.syncService?.logOp('set_project', { value: '' });
                         }
                         renderProjects();
                         this.plugin.refreshAllViews();
@@ -306,13 +309,11 @@ export class TomatoSettingTab extends PluginSettingTab {
 
         // --- Sync ---
         new Setting(containerEl).setHeading().setName('多端同步');
+        const syncDir = this.plugin.settings.syncDir || `${(this.plugin.app.vault.configDir)}/plugins/${this.plugin.manifest.id}/timer-sync`;
+        const absoluteSyncDir = (this.plugin.app.vault.adapter as unknown as { getFullPath?: (path: string) => string }).getFullPath?.(syncDir) ?? syncDir;
         new Setting(containerEl)
-            .setName('同步文件路径')
-            .setDesc('用于多端状态同步的文件路径，相对于 vault 根目录')
-            .addText(t => t.setPlaceholder('sync/Tomato Sync.md').setValue(this.plugin.settings.syncFilePath).onChange(async v => {
-                this.plugin.settings.syncFilePath = v.trim() || 'sync/Tomato Sync.md';
-                await this.plugin.saveSettings();
-            }));
+            .setName('同步目录')
+            .setDesc(`用于多端状态同步的目录。请将该目录设置为坚果云等同步工具的同步文件夹，手机端 WebDAV 路径需指向同一目录。\n当前：${absoluteSyncDir}`);
         new Setting(containerEl)
             .setName('设备标识')
             .setDesc('本设备的唯一标识，自动生成，通常无需修改')

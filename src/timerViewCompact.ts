@@ -180,6 +180,7 @@ export class TomatoTimerCompactView extends ItemView {
             const cycle = TomatoTimerCompactView.MODE_CYCLE;
             const next = cycle[(cycle.indexOf(current) + 1) % cycle.length];
             this.plugin.timer.setMode(next);
+            this.plugin.syncService?.logOp('set_mode', { mode: next });
             this.plugin.refreshAllViews?.();
         });
 

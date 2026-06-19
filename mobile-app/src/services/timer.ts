@@ -1,6 +1,6 @@
 export type TimerMode = 'pomodoro' | 'stopwatch' | 'countdown';
 export type PhaseType = 'idle' | 'work' | 'shortBreak' | 'longBreak' | 'countdown' | 'stopwatch';
-export type TimerStatus = 'idle' | 'running' | 'paused';
+export type TimerStatus = 'idle' | 'running';
 
 export interface TimerSettings {
   workMinutes: number;
@@ -178,20 +178,26 @@ export class TomatoTimer {
     this.notifyTick();
   }
 
-  pause(): void {
-    if (this.state.status !== 'running') return;
-    this.state.accumulatedMs += Date.now() - this.state.segmentStartMs;
-    this.state.status = 'paused';
+  stop(): void {
+    if (this.state.status === 'idle') return;
     this.stopInterval();
-    this.notifyTick();
-  }
+    const donePhase = this.state.phase;
+    const durationMin = Math.max(1, Math.round(this.getElapsedMs() / 1000 / 60));
 
-  resume(): void {
-    if (this.state.status !== 'paused') return;
-    this.state.segmentStartMs = Date.now();
-    this.state.status = 'running';
-    this.startInterval();
+    // 保存需要在 reset 后保留的字段
+    const savedCompleted = this.state.completedTomatos;
+    const savedTask = this.state.taskName;
+    const savedProject = this.state.currentProject;
+    const savedMode = this.state.mode;
+
+    this.resetToIdle();
+    this.state.completedTomatos = savedCompleted;
+    this.state.taskName = savedTask;
+    this.state.currentProject = savedProject;
+    this.state.mode = savedMode;
+
     this.notifyTick();
+    this.onPhaseCb?.(donePhase, 'idle', durationMin);
   }
 
   reset(): void {
@@ -220,25 +226,32 @@ export class TomatoTimer {
 
   getElapsedMs(): number {
     if (this.state.status === 'idle') return 0;
-    const currentSegment = this.state.status === 'running' ? Date.now() - this.state.segmentStartMs : 0;
-    return this.state.accumulatedMs + currentSegment;
+    return this.state.accumulatedMs + (Date.now() - this.state.segmentStartMs);
   }
 
   private startInterval(): void {
-    if (this.intervalId) return;
-    this.intervalId = setInterval(() => this.tick(), 1000);
+    this.stopInterval();
+    this.intervalId = -1;
+    this.scheduleTick();
   }
 
   private stopInterval(): void {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
+    if (this.intervalId !== null && this.intervalId !== -1) {
+      clearTimeout(this.intervalId);
     }
+    this.intervalId = null;
+  }
+
+  private scheduleTick(): void {
+    if (this.intervalId === null) return;
+    const drift = Date.now() % 1000;
+    this.intervalId = setTimeout(() => this.tick(), Math.max(16, 1000 - drift));
   }
 
   private tick(): void {
     if (this.state.mode === 'stopwatch') {
       this.notifyTick();
+      this.scheduleTick();
       return;
     }
     if (this.getRemainingMs() <= 0) {
@@ -248,6 +261,7 @@ export class TomatoTimer {
       this.handlePhaseComplete(donePhase, durationMin);
     } else {
       this.notifyTick();
+      this.scheduleTick();
     }
   }
 

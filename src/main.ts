@@ -82,8 +82,8 @@ export default class TomatoPlugin extends Plugin {
 
         // Command palette
         this.addCommand({
-            id: 'start-pause',
-            name: this.t('cmd.startPause'),
+            id: 'start-stop',
+            name: this.t('cmd.startStop'),
             callback: () => {
                 const s = this.timer.getState();
                 if (s.phase === 'idle') {
@@ -98,12 +98,8 @@ export default class TomatoPlugin extends Plugin {
                         sessionDate: this.timer.getSessionStartDate(),
                         sessionTime: this.timer.getSessionStartTime(),
                     });
-                } else if (s.status === 'running') {
-                    this.timer.pause();
-                    this.syncService?.logOp('pause', {});
                 } else {
-                    this.timer.resume();
-                    this.syncService?.logOp('resume', {});
+                    this.timer.stop();
                 }
             },
         });
@@ -184,6 +180,12 @@ export default class TomatoPlugin extends Plugin {
             } catch {
                 // ignore: file doesn't exist or parse error
             }
+        }
+
+        // 默认同步目录：插件目录下的 timer-sync
+        if (!this.settings.syncDir) {
+            this.settings.syncDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}/timer-sync`;
+            await this.saveSettings();
         }
 
         // Sync calendar settings into calendar-extended store
@@ -305,6 +307,8 @@ export default class TomatoPlugin extends Plugin {
                 this.timer.reset();
                 this.timer.setTaskName('');
                 this.timer.setCurrentProject('');
+                this.syncService?.logOp('set_task', { value: '' });
+                this.syncService?.logOp('set_project', { value: '' });
                 this.refreshAllViews();
             }
         }
