@@ -1,6 +1,6 @@
 import { App, type EventRef, normalizePath } from 'obsidian';
 import type TomatoPlugin from '../main';
-import type { PhaseType } from '../timer';
+import type { PhaseType, TimerMode, TomatoTimer } from '../timer';
 import { SyncEngine } from '../sync';
 import { ObsidianSyncAdapter, ObsidianLocalStore } from '../sync/adapter';
 import type { ConflictResolution, RunningSession, SyncEngineState } from '../sync';
@@ -220,7 +220,7 @@ export class SyncService {
             const session = state.runningSessions[0];
             // 仅有远程会话在运行，且本机此前未在运行，才将远程开始同步到本地计时器
             if (session.device !== localDeviceId && !isLocalRunning && !wasLocalRunning) {
-                this.applyRemoteStart(session);
+                this.applyRemoteStart(session, state.mode);
             }
         } else if (state.status === 'idle' && previous.status !== 'idle') {
             const hadRemoteRunning = previous.runningSessions.some(s => s.device !== localDeviceId);
@@ -243,15 +243,34 @@ export class SyncService {
     /**
      * 内部方法：将单个远程 running session 应用到本地计时器，使其进入运行状态。
      */
-    private applyRemoteStart(session: RunningSession): void {
+    private applyRemoteStart(session: RunningSession, mode?: string): void {
         const ts = new Date(session.startTs).getTime();
         if (Number.isNaN(ts)) return;
 
-        this.plugin.timer.applySyncState({
+        const timerMode = (mode as TimerMode) || this.plugin.timer.getMode();
+        const d = new Date(ts);
+        const sessionDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const sessionTime = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+        const patch: Parameters<TomatoTimer['applySyncState']>[0] = {
             status: 'running',
             segmentStartMs: ts,
             accumulatedMs: 0,
-        });
+            sessionDate,
+            sessionTime,
+            sessionMode: timerMode,
+        };
+
+        if (timerMode === 'pomodoro') {
+            patch.phase = 'work';
+            patch.cycleIndex = 1;
+        } else if (timerMode === 'stopwatch') {
+            patch.phase = 'stopwatch';
+        } else {
+            patch.phase = 'countdown';
+        }
+
+        this.plugin.timer.applySyncState(patch);
     }
 
     /**
