@@ -101,10 +101,16 @@ export interface SyncAdapter {
     readOpsFile(name: string): Promise<string>;
     /** 原子地向某个 ops 文件追加一行（末尾自动补换行） */
     appendOpsLine(name: string, line: string): Promise<void>;
+    /** 覆盖写入某个 ops 文件完整内容（用于清理历史） */
+    writeOpsFile(name: string, content: string): Promise<void>;
+    /** 删除某个 ops 文件 */
+    deleteOpsFile(name: string): Promise<void>;
     /** 读取 state.json 缓存，不存在返回 null */
     readStateCache(): Promise<string | null>;
     /** 写入 state.json 缓存 */
     writeStateCache(content: string): Promise<void>;
+    /** 删除 state.json 缓存 */
+    deleteStateCache(): Promise<void>;
 }
 
 /** 本地存储：deviceId 与 seq 计数器（不同步到云端，仅本机保存） */

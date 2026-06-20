@@ -150,10 +150,18 @@ export class SyncService {
                 break;
             }
             case 'stop':
-            case 'skip':
-                // stop/skip 均视为结束本机当前 running session
-                void this.engine.end();
+            case 'skip': {
+                // 结束本机会话；若本机没有运行中的会话但存在单个远程会话，则代理结束远程会话
+                const engineState = this.engine.getState();
+                const localRunning = engineState.runningSessions.find(s => s.device === this.deviceId);
+                if (localRunning) {
+                    void this.engine.end(localRunning.session);
+                } else if (engineState.runningSessions.length === 1) {
+                    const remote = engineState.runningSessions[0];
+                    void this.engine.proxyEnd(remote.device, remote.session);
+                }
                 break;
+            }
             case 'set_mode':
             case 'set_project':
             case 'set_task':
@@ -183,7 +191,16 @@ export class SyncService {
         };
         // 将 mode/task 组合为结束备注
         const note = entry.taskName || entry.mode ? `${entry.mode || ''} ${entry.taskName || ''}`.trim() : undefined;
-        void this.engine.end(undefined, note ? { note } : undefined);
+
+        // 结束本机会话；若本机没有运行中的会话但存在单个远程会话，则代理结束远程会话
+        const engineState = this.engine.getState();
+        const localRunning = engineState.runningSessions.find(s => s.device === this.deviceId);
+        if (localRunning) {
+            void this.engine.end(localRunning.session, note ? { note } : undefined);
+        } else if (engineState.runningSessions.length === 1) {
+            const remote = engineState.runningSessions[0];
+            void this.engine.proxyEnd(remote.device, remote.session);
+        }
 
         // 通知外部追加日志条目，并累加今日分钟数
         if (entry.date && entry.duration !== undefined) {
@@ -204,6 +221,22 @@ export class SyncService {
      */
     async loadFromSyncFile(): Promise<void> {
         await this.engine?.sync();
+    }
+
+    /**
+     * 重置所有同步数据：删除 ops 文件和状态缓存，清空本地计时器状态。
+     */
+    async reset(): Promise<void> {
+        await this.engine?.reset();
+        this.previousState = { status: 'idle', runningSessions: [], mode: undefined, project: undefined, task: undefined };
+        this.applyIdleState();
+    }
+
+    /**
+     * 清理过期同步记录：保留最近指定天数的 ops，同时保留当前运行中 session 和最新配置。
+     */
+    async cleanup(retentionDays: number): Promise<void> {
+        await this.engine?.cleanup(retentionDays);
     }
 
     // ========== 状态变化处理 ==========

@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, DropdownComponent } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting, DropdownComponent } from 'obsidian';
 import type { IWeekStartOption } from 'obsidian-calendar-ui';
 import type TomatoPlugin from './main';
 import type { Lang } from './i18n';
@@ -65,6 +65,8 @@ export interface TomatoPluginSettings {
     /** 同步目录路径（相对于 vault 根目录） */
     syncDir: string;
     syncDeviceId: string;
+    /** 同步记录自动清理保留天数，0 表示不清理 */
+    syncRetentionDays: number;
 }
 
 export const DEFAULT_SETTINGS: TomatoPluginSettings = {
@@ -94,6 +96,7 @@ export const DEFAULT_SETTINGS: TomatoPluginSettings = {
     /** 同步目录，留空则自动使用插件目录下的 timer-sync */
     syncDir: '',
     syncDeviceId: '',
+    syncRetentionDays: 30,
 };
 
 export class TomatoSettingTab extends PluginSettingTab {
@@ -321,6 +324,36 @@ export class TomatoSettingTab extends PluginSettingTab {
                 this.plugin.settings.syncDeviceId = v.trim();
                 await this.plugin.saveSettings();
             }));
+        new Setting(containerEl)
+            .setName('同步记录保留天数')
+            .setDesc('自动清理超过该天数的同步操作记录；0 表示不清理。进行中会话和最新配置始终保留。')
+            .addSlider(s => s
+                .setLimits(0, 90, 1)
+                .setValue(this.plugin.settings.syncRetentionDays)
+                .setDynamicTooltip()
+                .onChange(async v => {
+                    this.plugin.settings.syncRetentionDays = v;
+                    await this.plugin.saveSettings();
+                }));
+        new Setting(containerEl)
+            .setName('立即清理同步记录')
+            .setDesc('手动清理超过保留天数的同步操作记录')
+            .addButton(b => b
+                .setButtonText('清理')
+                .onClick(async () => {
+                    await this.plugin.syncService.cleanup(this.plugin.settings.syncRetentionDays);
+                    new Notice('同步记录已清理');
+                }));
+        new Setting(containerEl)
+            .setName('重置同步数据')
+            .setDesc('删除所有同步操作记录和状态缓存，重置序列号。本操作不可恢复。')
+            .addButton(b => b
+                .setButtonText('重置')
+                .setWarning()
+                .onClick(async () => {
+                    await this.plugin.syncService.reset();
+                    new Notice('同步数据已重置');
+                }));
     }
 
     private renderCalendarSettings(containerEl: HTMLElement): void {

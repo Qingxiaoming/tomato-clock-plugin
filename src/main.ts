@@ -113,6 +113,14 @@ export default class TomatoPlugin extends Plugin {
         });
         this.addCommand({ id: 'open', name: this.t('cmd.open'), callback: () => this.activateView() });
         this.addCommand({
+            id: 'reset-sync',
+            name: '重置同步数据',
+            callback: async () => {
+                await this.syncService.reset();
+                new Notice('同步数据已重置');
+            },
+        });
+        this.addCommand({
             id: 'mode-pomodoro',
             name: this.t('cmd.modePomodoro'),
             callback: () => {

@@ -74,7 +74,7 @@ function calcPhase(mode: TimerMode, cycleIndex: number, cycles: number): PhaseTy
 
 export class TomatoTimer {
   private settings: TimerSettings;
-  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private intervalId: ReturnType<typeof setTimeout> | null = null;
 
   private onTickCb: TimerTickCallback | null = null;
   private onPhaseCb: PhaseCompleteCallback | null = null;
@@ -233,19 +233,17 @@ export class TomatoTimer {
 
   private startInterval(): void {
     this.stopInterval();
-    this.intervalId = -1;
     this.scheduleTick();
   }
 
   private stopInterval(): void {
-    if (this.intervalId !== null && this.intervalId !== -1) {
+    if (this.intervalId !== null) {
       clearTimeout(this.intervalId);
     }
     this.intervalId = null;
   }
 
   private scheduleTick(): void {
-    if (this.intervalId === null) return;
     const drift = Date.now() % 1000;
     this.intervalId = setTimeout(() => this.tick(), Math.max(16, 1000 - drift));
   }

@@ -83,7 +83,32 @@ export class ObsidianSyncAdapter implements SyncAdapter {
         }
         content += line + '\n';
 
-        // 原子写入：先写 .tmp 再 rename
+        await this.atomicWrite(path, content);
+    }
+
+    /**
+     * 覆盖写入指定 ops 文件完整内容。
+     */
+    async writeOpsFile(name: string, content: string): Promise<void> {
+        const path = normalizePath(`${this.opsDir()}/${name}`);
+        await this.ensureDir(this.opsDir());
+        await this.atomicWrite(path, content);
+    }
+
+    /**
+     * 删除指定 ops 文件。
+     */
+    async deleteOpsFile(name: string): Promise<void> {
+        const path = normalizePath(`${this.opsDir()}/${name}`);
+        if (await this.app.vault.adapter.exists(path)) {
+            await this.app.vault.adapter.remove(path);
+        }
+    }
+
+    /**
+     * 内部方法：原子写入文件（先写 .tmp 再 rename）。
+     */
+    private async atomicWrite(path: string, content: string): Promise<void> {
         const tmpPath = path + '.tmp';
         await this.app.vault.adapter.write(tmpPath, content);
         try {
@@ -109,12 +134,16 @@ export class ObsidianSyncAdapter implements SyncAdapter {
     async writeStateCache(content: string): Promise<void> {
         const path = normalizePath(`${this.syncDir}/state.json`);
         await this.ensureDir(this.syncDir);
-        const tmpPath = path + '.tmp';
-        await this.app.vault.adapter.write(tmpPath, content);
-        try {
-            await this.app.vault.adapter.rename(tmpPath, path);
-        } catch {
-            await this.app.vault.adapter.write(path, content);
+        await this.atomicWrite(path, content);
+    }
+
+    /**
+     * 删除 state.json 缓存。
+     */
+    async deleteStateCache(): Promise<void> {
+        const path = normalizePath(`${this.syncDir}/state.json`);
+        if (await this.app.vault.adapter.exists(path)) {
+            await this.app.vault.adapter.remove(path);
         }
     }
 }

@@ -498,6 +498,102 @@ export class SyncEngine {
         }
     }
 
+    // ========== 重置与清理 ==========
+
+    /**
+     * 重置所有同步数据：删除 ops 文件、状态缓存，重置序列号，并通知状态变为 idle。
+     */
+    async reset(): Promise<void> {
+        const next = this.syncLock.then(() => this.doReset());
+        this.syncLock = next.catch(() => undefined);
+        await next;
+    }
+
+    /**
+     * 内部方法：执行重置。
+     */
+    private async doReset(): Promise<void> {
+        const files = await this.adapter.listOpsFiles();
+        for (const file of files) {
+            await this.adapter.deleteOpsFile(file);
+        }
+        await this.adapter.deleteStateCache();
+        await this.localStore.saveSeq(0);
+        this.currentState = { status: 'idle', runningSessions: [], mode: undefined, project: undefined, task: undefined };
+        this.lastCacheJson = '';
+        this.inConflict = false;
+        this.emitStateChanged(this.currentState);
+    }
+
+    /**
+     * 清理过期 ops：保留最近 retentionDays 天的记录，同时保留当前进行中的 session
+     * 和每个设备最新的 config op，确保当前状态可重建。
+     */
+    async cleanup(retentionDays: number): Promise<void> {
+        const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+        const next = this.syncLock.then(() => this.doCleanup(cutoff));
+        this.syncLock = next.catch(() => undefined);
+        await next;
+    }
+
+    /**
+     * 内部方法：执行清理。
+     */
+    private async doCleanup(cutoff: string): Promise<void> {
+        const parsed = await this.loadAllOps();
+        const allRecords = this.mergeAndSort(parsed);
+        const state = this.replay(allRecords);
+
+        const runningKeys = new Set(state.runningSessions.map(s => `${s.device}:${s.session}`));
+
+        const latestConfig = new Map<string, OpRecord>();
+        for (const op of allRecords) {
+            if (op.op === 'config') {
+                const existing = latestConfig.get(op.device);
+                if (!existing || op.seq > existing.seq) {
+                    latestConfig.set(op.device, op);
+                }
+            }
+        }
+
+        const files = await this.adapter.listOpsFiles();
+        for (const file of files) {
+            const content = await this.adapter.readOpsFile(file);
+            const lines = content.split('\n');
+            const kept: string[] = [];
+
+            for (const raw of lines) {
+                const trimmed = raw.trim();
+                if (!trimmed) continue;
+                try {
+                    const record = JSON.parse(trimmed) as OpRecord;
+                    const key = `${record.device}:${record.session}`;
+                    const isRunningStart = record.op === 'start' && runningKeys.has(key);
+                    const config = latestConfig.get(record.device);
+                    const isLatestConfig = record.op === 'config' && config && config.seq === record.seq;
+                    if (record.ts >= cutoff || isRunningStart || isLatestConfig) {
+                        kept.push(raw);
+                    }
+                } catch {
+                    // 解析失败的行直接丢弃
+                }
+            }
+
+            if (kept.length === 0) {
+                await this.adapter.deleteOpsFile(file);
+            } else {
+                const newContent = kept.join('\n') + '\n';
+                if (newContent !== content) {
+                    await this.adapter.writeOpsFile(file, newContent);
+                }
+            }
+        }
+
+        // 清理后缓存已失效，删除以便下次 sync() 重建
+        await this.adapter.deleteStateCache();
+        this.lastCacheJson = '';
+    }
+
     // ========== 派生状态缓存 ==========
 
     /**

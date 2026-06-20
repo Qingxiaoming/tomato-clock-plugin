@@ -78,6 +78,20 @@ export class MobileLocalSyncAdapter implements SyncAdapter {
         await file.write(content);
     }
 
+    async writeOpsFile(name: string, content: string): Promise<void> {
+        const file = new File(this.opsDir(), name);
+        await file.write(content);
+    }
+
+    async deleteOpsFile(name: string): Promise<void> {
+        const file = new File(this.opsDir(), name);
+        try {
+            await file.delete();
+        } catch {
+            // 文件不存在，忽略
+        }
+    }
+
     async readStateCache(): Promise<string | null> {
         const file = new File(this.syncDir, 'state.json');
         try {
@@ -89,7 +103,16 @@ export class MobileLocalSyncAdapter implements SyncAdapter {
 
     async writeStateCache(content: string): Promise<void> {
         const file = new File(this.syncDir, 'state.json');
-        file.write(content);
+        await file.write(content);
+    }
+
+    async deleteStateCache(): Promise<void> {
+        const file = new File(this.syncDir, 'state.json');
+        try {
+            await file.delete();
+        } catch {
+            // 文件不存在，忽略
+        }
     }
 }
 
@@ -169,6 +192,24 @@ export class MobileWebDAVSyncAdapter implements SyncAdapter {
         });
     }
 
+    async writeOpsFile(name: string, content: string): Promise<void> {
+        const path = `${this.normalizePath(this.opsDir())}/${name}`;
+        await withRetry(`writeOpsFile ${name}`, async () => {
+            await this.client.putFileContents(path, content, { overwrite: true });
+        });
+    }
+
+    async deleteOpsFile(name: string): Promise<void> {
+        const path = `${this.normalizePath(this.opsDir())}/${name}`;
+        try {
+            await withRetry(`deleteOpsFile ${name}`, async () => {
+                await this.client.deleteFile(path);
+            });
+        } catch {
+            // 文件不存在或删除失败，忽略
+        }
+    }
+
     async readStateCache(): Promise<string | null> {
         const path = `${this.normalizePath(this.syncDir)}/state.json`;
         try {
@@ -183,5 +224,16 @@ export class MobileWebDAVSyncAdapter implements SyncAdapter {
         await withRetry('writeStateCache', async () => {
             await this.client.putFileContents(path, content, { overwrite: true });
         });
+    }
+
+    async deleteStateCache(): Promise<void> {
+        const path = `${this.normalizePath(this.syncDir)}/state.json`;
+        try {
+            await withRetry('deleteStateCache', async () => {
+                await this.client.deleteFile(path);
+            });
+        } catch {
+            // 文件不存在或删除失败，忽略
+        }
     }
 }

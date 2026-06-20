@@ -35,6 +35,7 @@ const MODE_LABELS: Record<TimerMode, string> = {
 const MODE_CYCLE: TimerMode[] = ['pomodoro', 'stopwatch', 'countdown'];
 
 const WEBDAV_CONFIG_KEY = '@tomato_webdav_config';
+const RETENTION_DAYS_KEY = '@tomato_retention_days';
 
 interface WebDAVConfig {
   enabled: boolean;
@@ -58,6 +59,7 @@ export default function App() {
   });
   const [showSettings, setShowSettings] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
+  const [retentionDays, setRetentionDays] = useState(30);
 
   useEffect(() => {
     const timer = timerRef.current;
@@ -79,8 +81,13 @@ export default function App() {
     const sync = new SyncService(timer);
     syncRef.current = sync;
 
-    // Load WebDAV config and init
-    AsyncStorage.getItem(WEBDAV_CONFIG_KEY).then(raw => {
+    // Load WebDAV config, retention setting and init
+    Promise.all([
+      AsyncStorage.getItem(WEBDAV_CONFIG_KEY),
+      AsyncStorage.getItem(RETENTION_DAYS_KEY),
+    ]).then(([raw, retentionRaw]) => {
+      const loadedRetention = parseInt(retentionRaw || '30', 10) || 30;
+      setRetentionDays(loadedRetention);
       if (raw) {
         try {
           const loaded = JSON.parse(raw) as WebDAVConfig & { filePath?: string };
@@ -101,7 +108,11 @@ export default function App() {
           // ignore
         }
       }
-      return sync.init();
+      return sync.init().then(() => {
+        if (loadedRetention > 0) {
+          return sync.cleanup(loadedRetention);
+        }
+      });
     }).catch(e => {
       console.error('Sync init failed:', e);
       setSyncStatus('error');
@@ -112,6 +123,42 @@ export default function App() {
       timer.destroy();
     };
   }, []);
+
+  const handleResetSync = useCallback(() => {
+    Alert.alert(
+      '重置同步数据',
+      '确定要删除所有同步记录吗？这将清空所有设备的计时状态，且不可恢复。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '确定',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setSyncStatus('syncing');
+              await syncRef.current?.reset();
+              setSyncStatus('idle');
+            } catch (e) {
+              Alert.alert('重置失败', String(e));
+              setSyncStatus('error');
+            }
+          },
+        },
+      ],
+    );
+  }, []);
+
+  const handleCleanup = useCallback(async () => {
+    try {
+      setSyncStatus('syncing');
+      await syncRef.current?.cleanup(retentionDays);
+      await AsyncStorage.setItem(RETENTION_DAYS_KEY, String(retentionDays));
+      setSyncStatus('idle');
+    } catch (e) {
+      Alert.alert('清理失败', String(e));
+      setSyncStatus('error');
+    }
+  }, [retentionDays]);
 
   const saveWebDAVConfig = useCallback(async (cfg: WebDAVConfig) => {
     setWebdavConfig(cfg);
@@ -212,6 +259,10 @@ export default function App() {
               config={webdavConfig}
               onChange={saveWebDAVConfig}
               syncStatus={syncStatus}
+              retentionDays={retentionDays}
+              onRetentionChange={setRetentionDays}
+              onReset={handleResetSync}
+              onCleanup={handleCleanup}
             />
           ) : (
             <>
@@ -300,10 +351,14 @@ export default function App() {
   );
 }
 
-function SettingsPanel({ config, onChange, syncStatus }: {
+function SettingsPanel({ config, onChange, syncStatus, retentionDays, onRetentionChange, onReset, onCleanup }: {
   config: WebDAVConfig;
   onChange: (cfg: WebDAVConfig) => void;
   syncStatus: 'idle' | 'syncing' | 'error';
+  retentionDays: number;
+  onRetentionChange: (days: number) => void;
+  onReset: () => void;
+  onCleanup: () => void;
 }) {
   const [local, setLocal] = useState(config);
 
@@ -365,6 +420,25 @@ function SettingsPanel({ config, onChange, syncStatus }: {
 
       <TouchableOpacity style={styles.saveBtn} onPress={() => onChange(local)}>
         <Text style={styles.saveBtnText}>保存并应用</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.settingsHeading}>同步数据管理</Text>
+
+      <Text style={styles.settingHint}>自动清理保留天数（0 表示不自动清理）</Text>
+      <TextInput
+        style={styles.settingInput}
+        value={String(retentionDays)}
+        onChangeText={v => onRetentionChange(parseInt(v, 10) || 0)}
+        keyboardType="numeric"
+        placeholder="30"
+      />
+
+      <TouchableOpacity style={styles.settingBtn} onPress={onCleanup}>
+        <Text style={styles.settingBtnText}>立即清理过期记录</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={[styles.settingBtn, { backgroundColor: '#fee2e2' }]} onPress={onReset}>
+        <Text style={[styles.settingBtnText, { color: '#991b1b' }]}>重置所有同步数据</Text>
       </TouchableOpacity>
 
       <Text style={styles.settingStatus}>当前状态: {syncStatus === 'idle' ? '正常' : syncStatus === 'syncing' ? '同步中...' : '连接失败'}</Text>
