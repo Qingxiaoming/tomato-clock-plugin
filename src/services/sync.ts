@@ -5,7 +5,7 @@ import { SyncEngine } from '../sync';
 import { ObsidianSyncAdapter, ObsidianLocalStore } from '../sync/adapter';
 import type { ConflictResolution, RunningSession, SyncEngineState } from '../sync';
 
-/** 外部调用使用的操作类型 */
+/** 外部调用使用的操作类型：业务语义上的动作，会映射为引擎底层的 op */
 export type SyncOpType =
     | 'start'
     | 'stop'
@@ -15,6 +15,9 @@ export type SyncOpType =
     | 'set_task'
     | 'phase_complete';
 
+/**
+ * 生成 UUID v4（与 sync/engine.ts 保持一致，避免引入外部依赖）
+ */
 function generateUUID(): string {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
         const r = (Math.random() * 16) | 0;
@@ -24,21 +27,28 @@ function generateUUID(): string {
 }
 
 /**
- * 多端同步服务
+ * 多端同步服务（Obsidian 版）
  *
  * 底层基于事件溯源引擎（SyncEngine）。
  * start/stop/skip/phase_complete 会映射为 start/end 操作；
  * set_mode/set_project/set_task 会同步为对应配置操作。
  */
 export class SyncService {
+    // Obsidian App 实例
     private app: App;
+    // 插件实例
     private plugin: TomatoPlugin;
+    // 同步引擎实例
     private engine: SyncEngine;
+    // vault modify 事件注销引用
     private unregisterModify?: EventRef;
+    // 轮询兜底定时器
     private pollIntervalId?: ReturnType<typeof setInterval>;
+    // modify 事件防抖定时器
     private modifyDebounceTimer?: ReturnType<typeof setTimeout>;
 
-    private previousState: SyncEngineState = { status: 'idle', runningSessions: [] };
+    // 上一次 engine 状态，用于计算差量变化
+    private previousState: SyncEngineState = { status: 'idle', runningSessions: [], mode: undefined, project: undefined, task: undefined };
 
     /** 保留旧属性，实际今日时长由各视图从日志文件重新计算 */
     todayMinutes = 0;
@@ -54,6 +64,9 @@ export class SyncService {
         this.engine = this.createEngine();
     }
 
+    /**
+     * 内部方法：根据插件设置构造 SyncEngine 实例。
+     */
     private createEngine(): SyncEngine {
         const syncDir = this.plugin.settings.syncDir;
         const adapter = new ObsidianSyncAdapter(this.app, syncDir);
@@ -68,6 +81,9 @@ export class SyncService {
         });
     }
 
+    /**
+     * 初始化同步服务：订阅引擎事件、执行首次同步、监听文件变化并启动轮询。
+     */
     async init(): Promise<void> {
         this.engine.onStateChanged(state => this.handleStateChanged(state));
         this.engine.onConflict(event => this.handleConflict(event));
@@ -89,12 +105,15 @@ export class SyncService {
             }
         });
 
-        // 轮询兜底：坚果云等外部同步工具修改文件时 Obsidian  modify 事件可能不触发
+        // 轮询兜底：坚果云等外部同步工具修改文件时 Obsidian modify 事件可能不触发
         this.pollIntervalId = setInterval(() => {
             void this.engine.sync();
         }, 10000);
     }
 
+    /**
+     * 销毁同步服务：取消 modify 监听、清理防抖和轮询定时器。
+     */
     destroy(): void {
         if (this.unregisterModify) {
             this.app.vault.offref(this.unregisterModify);
@@ -112,6 +131,9 @@ export class SyncService {
 
     // ========== 对外 API：记录操作 ==========
 
+    /**
+     * 将业务操作映射为底层同步 op，并异步提交给引擎。
+     */
     logOp(op: SyncOpType, payload: Record<string, unknown>): void {
         switch (op) {
             case 'start': {
@@ -125,14 +147,16 @@ export class SyncService {
             }
             case 'stop':
             case 'skip':
+                // stop/skip 均视为结束本机当前 running session
                 void this.engine.end();
                 break;
             case 'set_mode':
             case 'set_project':
             case 'set_task':
+                // 将 set_mode/set_project/set_task 映射为 config 的 mode/project/task
                 void this.engine.config({
                     [op === 'set_mode' ? 'mode' : op === 'set_project' ? 'project' : 'task']:
-                        payload.value ?? payload[op.split('_')[1]],
+                        payload.value ?? payload[op.split('_')[1]] ?? payload.taskName,
                 });
                 break;
             default:
@@ -140,6 +164,9 @@ export class SyncService {
         }
     }
 
+    /**
+     * 阶段完成时调用：结束当前会话。
+     */
     logPhaseComplete(_completed: PhaseType, _next: PhaseType, _durationMinutes: number, entryPayload: Record<string, unknown>): void {
         const entry = entryPayload as {
             date?: string;
@@ -149,12 +176,16 @@ export class SyncService {
             mode?: string;
             taskName?: string;
         };
+        // 将 mode/task 组合为结束备注
         const note = entry.taskName || entry.mode ? `${entry.mode || ''} ${entry.taskName || ''}`.trim() : undefined;
         void this.engine.end(undefined, note ? { note } : undefined);
     }
 
     // ========== 状态变化处理 ==========
 
+    /**
+     * 内部方法：处理引擎状态变化，将远程状态同步应用到本地计时器。
+     */
     private handleStateChanged(state: SyncEngineState): void {
         const localDeviceId = this.plugin.settings.syncDeviceId;
         const previous = this.previousState;
@@ -166,6 +197,7 @@ export class SyncService {
             task: state.task,
         };
 
+        // 判断本机是否在运行中，用于区分本地操作与远程操作
         const wasLocalRunning = previous.runningSessions.some(s => s.device === localDeviceId);
         const isLocalRunning = state.runningSessions.some(s => s.device === localDeviceId);
 
@@ -199,12 +231,18 @@ export class SyncService {
         }
     }
 
+    /**
+     * 内部方法：处理冲突事件。当前默认保留本机会话。
+     */
     private handleConflict(event: { runningSessions: RunningSession[]; resolve: (resolution: ConflictResolution) => Promise<void> }): void {
         // UI 层尚未实现冲突选择界面，为保持现有 UI 可用，
         // 默认保留本机会话，结束其他设备的会话。
         void event.resolve('keep_local');
     }
 
+    /**
+     * 内部方法：将单个远程 running session 应用到本地计时器，使其进入运行状态。
+     */
     private applyRemoteStart(session: RunningSession): void {
         const ts = new Date(session.startTs).getTime();
         if (Number.isNaN(ts)) return;
@@ -216,6 +254,9 @@ export class SyncService {
         });
     }
 
+    /**
+     * 内部方法：将本地计时器重置为空闲状态。
+     */
     private applyIdleState(): void {
         this.plugin.timer.applySyncState({
             status: 'idle',

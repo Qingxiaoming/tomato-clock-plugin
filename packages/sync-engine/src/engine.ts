@@ -22,12 +22,15 @@ function generateUUID(): string {
     });
 }
 
+// 解析后的单行 op 记录：包含解析出的结构化对象和原始字符串
 interface ParsedLine {
     record: OpRecord;
     raw: string;
 }
 
+// 状态变化监听器类型
 type StateListener = (state: SyncEngineState) => void;
+// 冲突事件监听器类型
 type ConflictListener = (event: SyncConflictEvent) => void;
 
 /**
@@ -37,30 +40,45 @@ type ConflictListener = (event: SyncConflictEvent) => void;
  * 逻辑，最终状态一致。冲突检测后不自动结束计时，等待调用方解决。
  */
 export class SyncEngine {
+    // 本设备唯一标识，用于区分不同设备的 ops 文件和 running session
     private deviceId: string;
+    // 本地持久化存储，用于保存当前序列号 seq
     private localStore: LocalStore;
+    // 远程同步适配器，负责 ops 文件的读写、状态缓存和目录保证
     private adapter: SyncAdapter;
+    // 自定义警告日志输出
     private warn: (msg: string, meta?: Record<string, unknown>) => void;
+    // 自定义错误日志输出
     private error: (msg: string, meta?: Record<string, unknown>) => void;
 
+    // 状态变化监听器列表
     private stateListeners: StateListener[] = [];
+    // 冲突事件监听器列表
     private conflictListeners: ConflictListener[] = [];
 
+    // 当前计算出的同步状态
     private currentState: SyncEngineState = { status: 'idle', runningSessions: [], mode: undefined, project: undefined, task: undefined };
+    // 上一次写入的状态缓存 JSON，用于避免重复写入相同内容
     private lastCacheJson = '';
+    // 是否已处于冲突状态，用于控制 conflict 事件只触发一次
     private inConflict = false;
+    // 同步互斥锁，串行化 sync 和写操作，防止并发导致状态不一致
     private syncLock = Promise.resolve<void>(undefined);
 
     constructor(options: SyncEngineOptions) {
         this.deviceId = options.deviceId;
         this.localStore = options.localStore;
         this.adapter = options.adapter;
+        // 未提供日志函数时回退到 console
         this.warn = options.warn || ((msg, meta) => console.warn(`[SyncEngine] ${msg}`, meta ?? {}));
         this.error = options.error || ((msg, meta) => console.error(`[SyncEngine] ${msg}`, meta ?? {}));
     }
 
     // ========== 事件订阅 ==========
 
+    /**
+     * 注册状态变化监听器，返回注销函数。
+     */
     onStateChanged(listener: StateListener): () => void {
         this.stateListeners.push(listener);
         return () => {
@@ -69,6 +87,9 @@ export class SyncEngine {
         };
     }
 
+    /**
+     * 注册冲突事件监听器，返回注销函数。
+     */
     onConflict(listener: ConflictListener): () => void {
         this.conflictListeners.push(listener);
         return () => {
@@ -77,6 +98,9 @@ export class SyncEngine {
         };
     }
 
+    /**
+     * 内部方法：安全地通知所有状态监听器，单个监听器异常不影响其他监听器。
+     */
     private emitStateChanged(state: SyncEngineState): void {
         for (const listener of this.stateListeners) {
             try {
@@ -87,6 +111,9 @@ export class SyncEngine {
         }
     }
 
+    /**
+     * 内部方法：安全地通知所有冲突监听器，单个监听器异常不影响其他监听器。
+     */
     private emitConflict(event: SyncConflictEvent): void {
         for (const listener of this.conflictListeners) {
             try {
@@ -99,6 +126,9 @@ export class SyncEngine {
 
     // ========== 状态查询 ==========
 
+    /**
+     * 获取当前同步状态的深拷贝快照，避免外部直接修改内部状态。
+     */
     getState(): SyncEngineState {
         return {
             status: this.currentState.status,
@@ -109,12 +139,18 @@ export class SyncEngine {
         };
     }
 
+    /**
+     * 获取本设备当前正在运行的会话，没有则返回 null。
+     */
     getLocalRunningSession(): RunningSession | null {
         return this.currentState.runningSessions.find(s => s.device === this.deviceId) || null;
     }
 
     // ========== 初始化 ==========
 
+    /**
+     * 初始化同步引擎：确保同步目录存在并执行一次完整同步。
+     */
     async init(): Promise<void> {
         await this.adapter.ensureSyncDir();
         await this.sync();
@@ -167,6 +203,9 @@ export class SyncEngine {
         await this.sync();
     }
 
+    /**
+     * 内部方法：构造一条 OpRecord 并追加到本设备的 ops 文件中。
+     */
     private async writeOp(op: SyncOpType, session: string, payload: Record<string, unknown>): Promise<void> {
         const seq = await this.advanceSeq();
         const record: OpRecord = {
@@ -182,6 +221,9 @@ export class SyncEngine {
         await this.adapter.appendOpsLine(filename, line);
     }
 
+    /**
+     * 内部方法：将本地 seq 加 1 并持久化，保证本设备每条 op 的 seq 唯一递增。
+     */
     private async advanceSeq(): Promise<number> {
         const current = await this.localStore.loadSeq();
         const next = current + 1;
@@ -202,16 +244,26 @@ export class SyncEngine {
         await next;
     }
 
+    /**
+     * 内部方法：执行一次完整的同步流程。
+     */
     private async doSync(): Promise<void> {
+        // 1. 加载所有设备的 ops 记录
         const ops = await this.loadAllOps();
+        // 2. 合并去重并排序，得到确定性的操作序列
         const sorted = this.mergeAndSort(ops);
+        // 3. 重放状态机，得到新的同步状态
         const newState = this.replay(sorted);
 
         const previous = this.currentState;
         this.currentState = newState;
 
+        // 4. 判断状态是否真正发生变化，避免无意义通知
         const stateChanged =
             previous.status !== newState.status ||
+            previous.mode !== newState.mode ||
+            previous.project !== newState.project ||
+            previous.task !== newState.task ||
             previous.runningSessions.length !== newState.runningSessions.length ||
             previous.runningSessions.some(
                 (s, i) =>
@@ -223,8 +275,10 @@ export class SyncEngine {
             this.emitStateChanged(newState);
         }
 
+        // 5. 将派生状态写入缓存，供外部快速读取
         await this.writeStateCache(newState, sorted);
 
+        // 6. 冲突状态检测：只在首次进入冲突时触发 conflict 事件
         if (newState.status === 'conflict' && !this.inConflict) {
             this.inConflict = true;
             this.emitConflict({
@@ -236,6 +290,9 @@ export class SyncEngine {
         }
     }
 
+    /**
+     * 内部方法：列出所有 ops 文件并逐行解析，跳过空行和非法记录。
+     */
     private async loadAllOps(): Promise<ParsedLine[]> {
         const filenames = await this.adapter.listOpsFiles();
         const result: ParsedLine[] = [];
@@ -260,6 +317,9 @@ export class SyncEngine {
         return result;
     }
 
+    /**
+     * 内部方法：校验单条 op 记录是否包含必需字段且字段类型正确。
+     */
     private isValidRecord(record: unknown): record is OpRecord {
         if (!record || typeof record !== 'object') return false;
         const r = record as Partial<OpRecord>;
@@ -271,6 +331,9 @@ export class SyncEngine {
         return true;
     }
 
+    /**
+     * 内部方法：对所有 ops 进行去重、排序，并检测 seq 断层。
+     */
     private mergeAndSort(ops: ParsedLine[]): OpRecord[] {
         // 去重：相同 (device, seq) 保留 ts 较早的
         const byKey = new Map<string, { record: OpRecord; raw: string }>();
@@ -304,7 +367,7 @@ export class SyncEngine {
             return a.seq - b.seq;
         });
 
-        // seq gap 警告
+        // seq gap 警告：按设备检查序列号是否连续，发现断层则记录警告
         const byDevice = new Map<string, number[]>();
         for (const r of records) {
             const arr = byDevice.get(r.device) || [];
@@ -323,13 +386,19 @@ export class SyncEngine {
         return records;
     }
 
+    /**
+     * 内部方法：按顺序重放 ops，计算当前 running session、配置和同步状态。
+     */
     private replay(ops: OpRecord[]): SyncEngineState {
+        // 当前仍在运行的会话集合，键为 device:session
         const running = new Map<string, RunningSession>();
+        // 当前配置快照
         let mode: string | undefined;
         let project: string | undefined;
         let task: string | undefined;
 
         for (const op of ops) {
+            // 辅助函数：生成 running map 的键
             const key = (d: string, s: string) => `${d}:${s}`;
 
             switch (op.op) {
@@ -384,12 +453,14 @@ export class SyncEngine {
             }
         }
 
+        // 将 running session 排序，保证状态输出的确定性
         const runningSessions = Array.from(running.values()).sort((a, b) => {
             if (a.startTs !== b.startTs) return a.startTs < b.startTs ? -1 : 1;
             if (a.device !== b.device) return a.device < b.device ? -1 : 1;
             return a.session < b.session ? -1 : 1;
         });
 
+        // 根据 running session 数量确定同步状态
         let status: TimerSyncStatus;
         if (runningSessions.length === 0) status = 'idle';
         else if (runningSessions.length === 1) status = 'running';
@@ -400,6 +471,9 @@ export class SyncEngine {
 
     // ========== 冲突解决 ==========
 
+    /**
+     * 内部方法：根据调用方决策，将不需要保留的会话通过 proxy_end 结束。
+     */
     private async resolveConflict(resolution: ConflictResolution): Promise<void> {
         if (this.currentState.status !== 'conflict') return;
 
@@ -426,6 +500,9 @@ export class SyncEngine {
 
     // ========== 派生状态缓存 ==========
 
+    /**
+     * 内部方法：将派生状态写入缓存文件，内容未变化时跳过写入。
+     */
     private async writeStateCache(state: SyncEngineState, ops: OpRecord[]): Promise<void> {
         try {
             const cache = {
@@ -444,6 +521,9 @@ export class SyncEngine {
         }
     }
 
+    /**
+     * 内部方法：计算 ops 序列的简单 hash，用于缓存变更检测。
+     */
     private computeOpsHash(ops: OpRecord[]): string {
         // 简单 hash：所有 (device,seq,ts) 拼接后取前 16 位
         const str = ops.map(o => `${o.device}:${o.seq}:${o.ts}`).join('|');

@@ -4,9 +4,13 @@
     "description": "Tomato timer plugin for Obsidian",
     "main": "main.js",
     "type": "module",
+    "workspaces": [
+        "packages/*"
+    ],
     "scripts": {
         "dev": "node esbuild.config.mjs",
-        "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+        "build": "npm run build -w @tomato/sync-engine && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+        "build:sync": "npm run build -w @tomato/sync-engine"
     },
     "license": "MIT",
     "devDependencies": {
@@ -16,6 +20,7 @@
         "typescript": "^5.8.3"
     },
     "dependencies": {
+        "@tomato/sync-engine": "*",
         "esbuild-svelte": "^0.9.5",
         "obsidian": "latest",
         "obsidian-calendar-ui": "0.3.12",

@@ -1,0 +1,20 @@
+{
+    "name": "@tomato/sync-engine",
+    "version": "1.0.0",
+    "description": "Shared event-sourcing sync engine for tomato-clock",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "files": [
+        "dist",
+        "src"
+    ],
+    "scripts": {
+        "build": "tsc",
+        "watch": "tsc --watch",
+        "prepare": "npm run build"
+    },
+    "license": "MIT",
+    "devDependencies": {
+        "typescript": "^5.8.3"
+    }
+}

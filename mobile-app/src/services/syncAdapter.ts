@@ -1,6 +1,6 @@
 import { Directory, File } from 'expo-file-system';
 import { createClient, type WebDAVClient } from 'webdav/react-native';
-import type { SyncAdapter } from '../sync/types';
+import type { SyncAdapter } from '@tomato/sync-engine';
 
 function ensureTrailingSlash(uri: string): string {
     return uri.replace(/\/?$/, '/');

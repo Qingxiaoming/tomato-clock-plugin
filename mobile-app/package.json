@@ -4,6 +4,7 @@
   "main": "index.ts",
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@tomato/sync-engine": "file:../packages/sync-engine",
     "@react-native-picker/picker": "2.11.4",
     "expo": "~56.0.12",
     "expo-document-picker": "~56.0.4",

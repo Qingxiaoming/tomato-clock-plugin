@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { LocalStore } from '../sync/types';
+import type { LocalStore } from '@tomato/sync-engine';
 
 const DEVICE_ID_KEY = '@tomato_sync_device_id';
 const SEQ_KEY = '@tomato_sync_seq';
