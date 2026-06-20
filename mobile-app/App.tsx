@@ -26,6 +26,14 @@ const PROJECTS = [
   { name: '娱乐', color: '#ef4444' },
 ];
 
+const MODE_LABELS: Record<TimerMode, string> = {
+  pomodoro: '🍅 番茄钟',
+  stopwatch: '⏱ 正计时',
+  countdown: '⏳ 倒计时',
+};
+
+const MODE_CYCLE: TimerMode[] = ['pomodoro', 'stopwatch', 'countdown'];
+
 const WEBDAV_CONFIG_KEY = '@tomato_webdav_config';
 
 interface WebDAVConfig {
@@ -130,30 +138,35 @@ export default function App() {
   const handleAction = useCallback(() => {
     const timer = timerRef.current;
     const sync = syncRef.current;
-    if (state.phase === 'idle') {
+    const s = timer.getState();
+    if (s.phase === 'idle') {
       timer.start();
       const ns = timer.getState();
-      sync?.logOp('start', { mode: ns.mode, phase: ns.phase, project: ns.currentProject, taskName: ns.taskName, countdownSec: ns.totalPhaseSeconds, sessionDate: timer.getSessionStartDate(), sessionTime: timer.getSessionStartTime() });
-    } else {
-      timer.stop();
+      sync?.logOp('start', {
+        mode: ns.mode,
+        phase: ns.phase,
+        project: ns.currentProject,
+        taskName: ns.taskName,
+        countdownSec: ns.totalPhaseSeconds,
+        sessionDate: timer.getSessionStartDate(),
+        sessionTime: timer.getSessionStartTime(),
+      });
+    } else if (s.mode === 'countdown') {
+      timer.reset();
       sync?.logOp('stop', {});
+    } else {
+      timer.skip();
+      sync?.logOp('skip', {});
     }
-  }, [state.phase]);
+  }, [state.phase, state.mode]);
 
-  const handleReset = useCallback(() => {
-    timerRef.current.reset();
-    syncRef.current?.logOp('stop', {});
-  }, []);
-
-  const handleSkip = useCallback(() => {
-    timerRef.current.skip();
-    syncRef.current?.logOp('skip', {});
-  }, []);
-
-  const handleModeChange = useCallback((mode: TimerMode) => {
-    timerRef.current.setMode(mode);
-    syncRef.current?.logOp('set_mode', { mode });
-  }, []);
+  const handleModeCycle = useCallback(() => {
+    if (state.status === 'running') return;
+    const current = timerRef.current.getMode();
+    const next = MODE_CYCLE[(MODE_CYCLE.indexOf(current) + 1) % MODE_CYCLE.length];
+    timerRef.current.setMode(next);
+    syncRef.current?.logOp('set_mode', { mode: next });
+  }, [state.status]);
 
   const handleProjectChange = useCallback((project: string) => {
     timerRef.current.setCurrentProject(project);
@@ -175,9 +188,11 @@ export default function App() {
 
   const mainBtnText = state.phase === 'idle'
     ? '开始'
-    : state.status === 'running'
-      ? '暂停'
-      : '继续';
+    : state.mode === 'countdown'
+      ? '重置'
+      : state.mode === 'stopwatch'
+        ? '停止'
+        : '跳过';
 
   return (
     <SafeAreaProvider>
@@ -202,17 +217,15 @@ export default function App() {
             <>
               {/* Mode selector */}
               <View style={styles.modeRow}>
-                {(['pomodoro', 'stopwatch', 'countdown'] as TimerMode[]).map(m => (
-                  <TouchableOpacity
-                    key={m}
-                    style={[styles.modeBtn, state.mode === m && styles.modeBtnActive]}
-                    onPress={() => handleModeChange(m)}
-                  >
-                    <Text style={[styles.modeBtnText, state.mode === m && styles.modeBtnTextActive]}>
-                      {m === 'pomodoro' ? '番茄钟' : m === 'stopwatch' ? '正计时' : '倒计时'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                <TouchableOpacity
+                  style={[styles.modeBtn, state.status === 'running' && styles.modeBtnDisabled]}
+                  onPress={handleModeCycle}
+                  disabled={state.status === 'running'}
+                >
+                  <Text style={[styles.modeBtnText, state.status === 'running' && styles.modeBtnTextDisabled]}>
+                    {MODE_LABELS[state.mode]} ›
+                  </Text>
+                </TouchableOpacity>
               </View>
 
               {/* Timer display */}
@@ -270,18 +283,6 @@ export default function App() {
                 <TouchableOpacity style={styles.mainBtn} onPress={handleAction}>
                   <Text style={styles.mainBtnText}>{mainBtnText}</Text>
                 </TouchableOpacity>
-                {state.phase !== 'idle' && (
-                  <View style={styles.secondaryRow}>
-                    <TouchableOpacity style={styles.secondaryBtn} onPress={handleReset}>
-                      <Text style={styles.secondaryBtnText}>停止</Text>
-                    </TouchableOpacity>
-                    {state.mode !== 'countdown' && (
-                      <TouchableOpacity style={styles.secondaryBtn} onPress={handleSkip}>
-                        <Text style={styles.secondaryBtnText}>跳过</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                )}
               </View>
 
               {/* Sync status */}
@@ -404,8 +405,10 @@ const styles = StyleSheet.create({
   modeRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 20 },
   modeBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#e5e7eb' },
   modeBtnActive: { backgroundColor: '#3b82f6' },
+  modeBtnDisabled: { opacity: 0.5, backgroundColor: '#d1d5db' },
   modeBtnText: { fontSize: 14, color: '#4b5563' },
   modeBtnTextActive: { color: '#fff', fontWeight: '600' },
+  modeBtnTextDisabled: { color: '#9ca3af' },
   timerWrap: { alignItems: 'center', marginBottom: 20 },
   timerText: { fontSize: 64, fontWeight: '200', color: '#111827', fontVariant: ['tabular-nums'] },
   timerSub: { fontSize: 16, color: '#6b7280', marginTop: 4 },
@@ -420,9 +423,6 @@ const styles = StyleSheet.create({
   controls: { alignItems: 'center', marginBottom: 20 },
   mainBtn: { backgroundColor: '#3b82f6', paddingHorizontal: 48, paddingVertical: 14, borderRadius: 28, minWidth: 160, alignItems: 'center' },
   mainBtnText: { color: '#fff', fontSize: 18, fontWeight: '600' },
-  secondaryRow: { flexDirection: 'row', gap: 12, marginTop: 12 },
-  secondaryBtn: { backgroundColor: '#e5e7eb', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20 },
-  secondaryBtnText: { color: '#374151', fontSize: 14 },
   todayRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: 14, borderRadius: 12, marginBottom: 12 },
   todayLabel: { fontSize: 14, color: '#6b7280' },
   todayValue: { fontSize: 16, fontWeight: '600', color: '#111827' },

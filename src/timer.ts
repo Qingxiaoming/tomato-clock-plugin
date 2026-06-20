@@ -142,6 +142,7 @@ export class TomatoTimer {
     }
 
     setMode(mode: TimerMode): void {
+        if (this.state.status === 'running') return;
         this.state = this.createIdleState(mode);
         this.stopInterval();
         this.notifyTick();

@@ -413,6 +413,17 @@
     border-color: var(--interactive-accent);
 }
 
+.Tomato-compact-mode-btn:disabled,
+.Tomato-compact-mode-btn.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.Tomato-compact-mode-btn:disabled:hover,
+.Tomato-compact-mode-btn.disabled:hover {
+    background: transparent;
+}
+
 
 /* =====================================================
    Project select (compact + full)

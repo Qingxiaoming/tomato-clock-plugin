@@ -144,6 +144,7 @@ export class TomatoTimer {
   }
 
   setMode(mode: TimerMode): void {
+    if (this.state.status === 'running') return;
     this.state = this.createIdleState(mode);
     this.notifyTick();
   }
@@ -209,8 +210,9 @@ export class TomatoTimer {
   skip(): void {
     if (this.state.status === 'idle') return;
     this.stopInterval();
-    this.resetToIdle();
-    this.notifyTick();
+    const donePhase = this.state.phase;
+    const durationMin = Math.max(1, Math.round(this.getElapsedMs() / 1000 / 60));
+    this.handlePhaseComplete(donePhase, durationMin);
   }
 
   destroy(): void {

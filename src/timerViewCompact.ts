@@ -176,6 +176,7 @@ export class TomatoTimerCompactView extends ItemView {
         });
         setIcon(this.modeBtn, TomatoTimerCompactView.MODE_ICONS['pomodoro']);
         this.registerDomEvent(this.modeBtn, 'click', () => {
+            if (this.plugin.timer.getState().status !== 'idle') return;
             const current = this.plugin.timer.getMode();
             const cycle = TomatoTimerCompactView.MODE_CYCLE;
             const next = cycle[(cycle.indexOf(current) + 1) % cycle.length];
@@ -600,6 +601,8 @@ export class TomatoTimerCompactView extends ItemView {
             setIcon(this.actionBtn, actionIcon);
         }
         this.actionBtn.disabled = false;
+        this.modeBtn.disabled = state.status !== 'idle';
+        this.modeBtn.toggleClass('disabled', state.status !== 'idle');
 
         // Dots only for pomodoro
         const dotDisplay = state.mode === 'pomodoro' ? 'flex' : 'none';
