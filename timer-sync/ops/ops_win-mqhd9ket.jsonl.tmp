@@ -1,0 +1,2 @@
+{"op":"proxy_end","ts":"2026-06-21T05:53:37.174Z","device":"win-mqhd9ket","session":"163681aa-3cf0-4267-9851-77f75f2bb5a1","seq":18,"payload":{"targetDevice":"920837da-99bf-4d51-a036-5711e67734ad","targetSession":"d8fcb1ab-e74d-4f0b-bc06-63c90aa4f9c6"}}
+{"op":"config","ts":"2026-06-21T05:53:37.220Z","device":"win-mqhd9ket","session":"fca3839f-1735-4d10-89c5-06b15a012663","seq":19,"payload":{"project":"","task":""}}

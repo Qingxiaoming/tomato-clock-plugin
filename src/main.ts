@@ -24,6 +24,37 @@ export default class TomatoPlugin extends Plugin {
     t(key: string): string { return t(key, this.settings.language); }
     tf(key: string, vars: Record<string, string | number>): string { return tf(key, this.settings.language, vars); }
 
+    /** 统一入口：开始计时并写同步 op */
+    startTimer(): void {
+        this.timer.start();
+        const ns = this.timer.getState();
+        this.syncService?.logOp('start', {
+            mode: ns.mode,
+            phase: ns.phase,
+            project: ns.currentProject,
+            taskName: ns.taskName,
+            countdownSec: ns.totalPhaseSeconds,
+            sessionDate: this.timer.getSessionStartDate(),
+            sessionTime: this.timer.getSessionStartTime(),
+        });
+    }
+
+    /** 统一入口：停止计时，同步 op 由 onPhaseComplete 写入 */
+    stopTimer(): void {
+        this.timer.stop();
+    }
+
+    /** 统一入口：跳过当前阶段，同步 op 由 onPhaseComplete 写入 */
+    skipTimer(): void {
+        this.timer.skip();
+    }
+
+    /** 统一入口：重置计时器并结束当前会话（reset 不触发 onPhaseComplete） */
+    resetTimer(): void {
+        this.timer.reset();
+        this.syncService?.logOp('stop', {});
+    }
+
     async onload(): Promise<void> {
         await this.loadSettings();
 
@@ -87,29 +118,16 @@ export default class TomatoPlugin extends Plugin {
             callback: () => {
                 const s = this.timer.getState();
                 if (s.phase === 'idle') {
-                    this.timer.start();
-                    const ns = this.timer.getState();
-                    this.syncService?.logOp('start', {
-                        mode: ns.mode,
-                        phase: ns.phase,
-                        project: ns.currentProject,
-                        taskName: ns.taskName,
-                        countdownSec: ns.totalPhaseSeconds,
-                        sessionDate: this.timer.getSessionStartDate(),
-                        sessionTime: this.timer.getSessionStartTime(),
-                    });
+                    this.startTimer();
                 } else {
-                    this.timer.stop();
+                    this.stopTimer();
                 }
             },
         });
         this.addCommand({
             id: 'reset',
             name: this.t('cmd.reset'),
-            callback: () => {
-                this.timer.reset();
-                this.syncService?.logOp('stop', {});
-            },
+            callback: () => this.resetTimer(),
         });
         this.addCommand({ id: 'open', name: this.t('cmd.open'), callback: () => this.activateView() });
         this.addCommand({
@@ -298,7 +316,7 @@ export default class TomatoPlugin extends Plugin {
                 new Notice(`${this.t('notice.logWriteFailed')}: ${e instanceof Error ? e.message : String(e)}`, 6000);
             }
             const actualNext = this.timer.getState().phase === 'idle' ? 'idle' : _next;
-            this.syncService?.logPhaseComplete(completed, actualNext as PhaseType, durationMinutes, {
+            await this.syncService?.logPhaseComplete(completed, actualNext as PhaseType, durationMinutes, {
                 date: entry.date,
                 startTime: entry.startTime,
                 endTime: entry.endTime,
@@ -315,8 +333,7 @@ export default class TomatoPlugin extends Plugin {
                 this.timer.reset();
                 this.timer.setTaskName('');
                 this.timer.setCurrentProject('');
-                this.syncService?.logOp('set_task', { value: '' });
-                this.syncService?.logOp('set_project', { value: '' });
+                await this.syncService?.logOp('set_config', { task: '', project: '' });
                 this.refreshAllViews();
             }
         }

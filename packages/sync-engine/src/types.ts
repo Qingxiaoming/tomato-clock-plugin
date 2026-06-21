@@ -24,9 +24,13 @@ export interface OpRecord {
     payload?: Record<string, unknown>;
 }
 
-/** start 操作的 payload：携带会话标签 */
+/** start 操作的 payload：携带会话标签及开始时的计时模式等信息 */
 export interface StartPayload {
     tags?: string[];
+    mode?: string;
+    countdownSec?: number;
+    sessionDate?: string;
+    sessionTime?: string;
 }
 
 /** end 操作的 payload：携带结束备注 */
@@ -57,6 +61,14 @@ export interface RunningSession {
     startTs: string;
     /** 会话标签 */
     tags?: string[];
+    /** 计时模式 */
+    mode?: string;
+    /** 倒计时秒数 */
+    countdownSec?: number;
+    /** 会话日期 */
+    sessionDate?: string;
+    /** 会话时间 */
+    sessionTime?: string;
 }
 
 /** 同步后的计时器状态分类 */

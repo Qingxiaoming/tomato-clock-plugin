@@ -409,16 +409,13 @@ export class TomatoTimerCompactView extends ItemView {
         menu.addItem((item) => {
             item.setTitle(this.plugin.t('panel.btn.stop'))
                 .setIcon('square')
-                .onClick(() => this.plugin.timer.stop());
+                .onClick(() => this.plugin.stopTimer());
         });
         if (mode === 'countdown') {
             menu.addItem((item) => {
                 item.setTitle(this.plugin.t('panel.btn.reset'))
                     .setIcon('rotate-ccw')
-                    .onClick(() => {
-                        this.plugin.timer.reset();
-                        this.plugin.syncService?.logOp('stop', {});
-                    });
+                    .onClick(() => this.plugin.resetTimer());
             });
         }
         menu.showAtMouseEvent(evt);
@@ -506,23 +503,14 @@ export class TomatoTimerCompactView extends ItemView {
     private onAction(): void {
         const s = this.plugin.timer.getState();
         if (s.phase === 'idle') {
-            this.plugin.timer.start();
-            const ns = this.plugin.timer.getState();
-            this.plugin.syncService?.logOp('start', {
-                mode: ns.mode,
-                phase: ns.phase,
-                project: ns.currentProject,
-                taskName: ns.taskName,
-            });
+            this.plugin.startTimer();
             return;
         }
         const mode = this.plugin.timer.getMode();
         if (mode === 'countdown') {
-            this.plugin.timer.reset();
-            this.plugin.syncService?.logOp('stop', {});
+            this.plugin.resetTimer();
         } else {
-            this.plugin.timer.skip();
-            this.plugin.syncService?.logOp('skip', {});
+            this.plugin.skipTimer();
         }
     }
 

@@ -3,6 +3,7 @@ import type {
     LocalStore,
     OpRecord,
     RunningSession,
+    StartPayload,
     SyncAdapter,
     SyncConflictEvent,
     SyncEngineOptions,
@@ -162,9 +163,9 @@ export class SyncEngine {
      * 开始一个新的计时会话，写入本机 ops 文件并触发 sync。
      * @returns 新会话 ID
      */
-    async start(payload?: { tags?: string[] }): Promise<string> {
+    async start(payload?: StartPayload): Promise<string> {
         const session = generateUUID();
-        await this.writeOp('start', session, payload ?? {});
+        await this.writeOp('start', session, (payload ?? {}) as Record<string, unknown>);
         await this.sync();
         return session;
     }
@@ -409,12 +410,16 @@ export class SyncEngine {
                             running.delete(k);
                         }
                     }
-                    const tags = Array.isArray(op.payload?.tags) ? (op.payload.tags as string[]) : undefined;
+                    const payload = op.payload as StartPayload | undefined;
                     running.set(key(op.device, op.session), {
                         device: op.device,
                         session: op.session,
                         startTs: op.ts,
-                        tags,
+                        tags: payload?.tags,
+                        mode: payload?.mode,
+                        countdownSec: typeof payload?.countdownSec === 'number' ? payload.countdownSec : undefined,
+                        sessionDate: payload?.sessionDate,
+                        sessionTime: payload?.sessionTime,
                     });
                     break;
                 }

@@ -1,6 +1,6 @@
 import { Paths } from 'expo-file-system';
 import { SyncEngine } from '@tomato/sync-engine';
-import type { SyncAdapter, ConflictResolution, RunningSession, SyncEngineState } from '@tomato/sync-engine';
+import type { SyncAdapter, ConflictResolution, RunningSession, StartPayload, SyncEngineState } from '@tomato/sync-engine';
 import type { TomatoTimer, PhaseType, TimerMode } from './timer';
 import { MobileLocalSyncAdapter } from './syncAdapter';
 import { AsyncStorageLocalStore } from './localStore';
@@ -13,6 +13,7 @@ export type SyncOpType =
     | 'set_mode'
     | 'set_project'
     | 'set_task'
+    | 'set_config'
     | 'phase_complete';
 
 /**
@@ -137,7 +138,7 @@ export class SyncService {
     /**
      * 将业务操作映射为底层同步 op，并异步提交给引擎。
      */
-    logOp(op: SyncOpType, payload: Record<string, unknown>): void {
+    async logOp(op: SyncOpType, payload: Record<string, unknown>): Promise<void> {
         if (!this.engine) return;
         switch (op) {
             case 'start': {
@@ -146,40 +147,62 @@ export class SyncService {
                 const taskName = (payload.taskName as string) || '';
                 if (project) tags.push(`project:${project}`);
                 if (taskName) tags.push(`task:${taskName}`);
-                void this.engine.start({ tags: tags.length > 0 ? tags : undefined });
-                break;
+                const startPayload: StartPayload = {
+                    tags: tags.length > 0 ? tags : undefined,
+                    mode: payload.mode as string | undefined,
+                    countdownSec: typeof payload.countdownSec === 'number' ? payload.countdownSec : undefined,
+                    sessionDate: payload.sessionDate as string | undefined,
+                    sessionTime: payload.sessionTime as string | undefined,
+                };
+                return this.engine.start(startPayload).then(() => undefined);
             }
             case 'stop':
             case 'skip': {
                 // 结束本机会话；若本机没有运行中的会话但存在单个远程会话，则代理结束远程会话
-                const engineState = this.engine.getState();
-                const localRunning = engineState.runningSessions.find(s => s.device === this.deviceId);
+                let engineState = this.engine.getState();
+                let localRunning = engineState.runningSessions.find(s => s.device === this.deviceId);
                 if (localRunning) {
-                    void this.engine.end(localRunning.session);
-                } else if (engineState.runningSessions.length === 1) {
-                    const remote = engineState.runningSessions[0];
-                    void this.engine.proxyEnd(remote.device, remote.session);
+                    return this.engine.end(localRunning.session);
                 }
-                break;
+                // 没有本地会话且当前状态为空时，先强制同步一次，避免远程 start 还没同步到本地就点击停止
+                if (engineState.runningSessions.length === 0) {
+                    await this.engine.sync();
+                    engineState = this.engine.getState();
+                    localRunning = engineState.runningSessions.find(s => s.device === this.deviceId);
+                    if (localRunning) {
+                        return this.engine.end(localRunning.session);
+                    }
+                }
+                if (engineState.runningSessions.length === 1) {
+                    const remote = engineState.runningSessions[0];
+                    return this.engine.proxyEnd(remote.device, remote.session);
+                }
+                return Promise.resolve();
             }
             case 'set_mode':
             case 'set_project':
             case 'set_task':
                 // 将 set_mode/set_project/set_task 映射为 config 的 mode/project/task
-                void this.engine.config({
+                return this.engine.config({
                     [op === 'set_mode' ? 'mode' : op === 'set_project' ? 'project' : 'task']:
                         payload.value ?? payload[op.split('_')[1]] ?? payload.taskName,
                 });
-                break;
+            case 'set_config':
+                // 一次性设置多个配置字段，避免分多次写 ops
+                return this.engine.config({
+                    mode: typeof payload.mode === 'string' ? payload.mode : undefined,
+                    project: typeof payload.project === 'string' ? payload.project : undefined,
+                    task: typeof payload.task === 'string' ? payload.task : undefined,
+                });
             default:
-                break;
+                return Promise.resolve();
         }
     }
 
     /**
      * 阶段完成时调用：结束当前会话并触发日志追加回调。
      */
-    logPhaseComplete(_completed: PhaseType, _next: PhaseType, _durationMinutes: number, entryPayload: Record<string, unknown>): void {
+    async logPhaseComplete(_completed: PhaseType, _next: PhaseType, _durationMinutes: number, entryPayload: Record<string, unknown>): Promise<void> {
         if (!this.engine) return;
         const entry = entryPayload as {
             date?: string;
@@ -193,13 +216,24 @@ export class SyncService {
         const note = entry.taskName || entry.mode ? `${entry.mode || ''} ${entry.taskName || ''}`.trim() : undefined;
 
         // 结束本机会话；若本机没有运行中的会话但存在单个远程会话，则代理结束远程会话
-        const engineState = this.engine.getState();
-        const localRunning = engineState.runningSessions.find(s => s.device === this.deviceId);
+        let engineState = this.engine.getState();
+        let localRunning = engineState.runningSessions.find(s => s.device === this.deviceId);
         if (localRunning) {
-            void this.engine.end(localRunning.session, note ? { note } : undefined);
+            await this.engine.end(localRunning.session, note ? { note } : undefined);
+        } else if (engineState.runningSessions.length === 0) {
+            // 没有本地会话且当前状态为空时，先强制同步一次，避免远程 start 还没同步到本地就结束
+            await this.engine.sync();
+            engineState = this.engine.getState();
+            localRunning = engineState.runningSessions.find(s => s.device === this.deviceId);
+            if (localRunning) {
+                await this.engine.end(localRunning.session, note ? { note } : undefined);
+            } else if (engineState.runningSessions.length === 1) {
+                const remote = engineState.runningSessions[0];
+                await this.engine.proxyEnd(remote.device, remote.session);
+            }
         } else if (engineState.runningSessions.length === 1) {
             const remote = engineState.runningSessions[0];
-            void this.engine.proxyEnd(remote.device, remote.session);
+            await this.engine.proxyEnd(remote.device, remote.session);
         }
 
         // 通知外部追加日志条目，并累加今日分钟数
@@ -278,12 +312,11 @@ export class SyncService {
             const session = state.runningSessions[0];
             // 仅有远程会话在运行，且本机此前未在运行，才将远程开始同步到本地计时器
             if (session.device !== this.deviceId && !isLocalRunning && !wasLocalRunning) {
-                this.applyRemoteStart(session, state.mode);
+                this.applyRemoteStart(session, session.mode ?? state.mode);
             }
         } else if (state.status === 'idle' && previous.status !== 'idle') {
-            const hadRemoteRunning = previous.runningSessions.some(s => s.device !== this.deviceId);
-            // 仅当此前有远程会话在运行且本机未在运行时，才同步为 idle
-            if (hadRemoteRunning && !wasLocalRunning) {
+            // 引擎已进入 idle，但本地计时器仍在运行，说明是远程操作结束了本会话
+            if (this.timer.getState().status === 'running') {
                 this.applyIdleState();
             }
         }
