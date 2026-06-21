@@ -14,10 +14,11 @@
     },
     "license": "MIT",
     "devDependencies": {
-        "@types/node": "^16.11.6",
+        "@types/node": "^18.19.130",
         "esbuild": "0.25.5",
         "tslib": "2.4.0",
-        "typescript": "^5.8.3"
+        "typescript": "^5.8.3",
+        "vitest": "^3.2.6"
     },
     "dependencies": {
         "@tomato/sync-engine": "*",

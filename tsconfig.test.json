@@ -1,0 +1,12 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "verbatimModuleSyntax": false
+    },
+    "include": [
+        "src/**/*.ts",
+        "mobile-app/src/**/*.ts",
+        "packages/sync-engine/src/**/*.ts",
+        "tests/**/*.ts"
+    ]
+}

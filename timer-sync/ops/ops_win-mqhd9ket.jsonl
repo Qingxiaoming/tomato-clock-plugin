@@ -1,2 +1,7 @@
 {"op":"proxy_end","ts":"2026-06-21T05:53:37.174Z","device":"win-mqhd9ket","session":"163681aa-3cf0-4267-9851-77f75f2bb5a1","seq":18,"payload":{"targetDevice":"920837da-99bf-4d51-a036-5711e67734ad","targetSession":"d8fcb1ab-e74d-4f0b-bc06-63c90aa4f9c6"}}
 {"op":"config","ts":"2026-06-21T05:53:37.220Z","device":"win-mqhd9ket","session":"fca3839f-1735-4d10-89c5-06b15a012663","seq":19,"payload":{"project":"","task":""}}
+{"op":"start","ts":"2026-06-21T06:21:06.784Z","device":"win-mqhd9ket","session":"12f05349-4e11-41b5-b1e2-dadb000dbd61","seq":20,"payload":{"mode":"stopwatch","countdownSec":0,"sessionDate":"2026-06-21","sessionTime":"14:21"}}
+{"op":"config","ts":"2026-06-21T06:49:48.166Z","device":"win-mqhd9ket","session":"bc29116e-4acc-49b1-8789-d67779bbea98","seq":21,"payload":{"project":"生活"}}
+{"op":"end","ts":"2026-06-21T06:49:48.926Z","device":"win-mqhd9ket","session":"12f05349-4e11-41b5-b1e2-dadb000dbd61","seq":22,"payload":{"note":"stopwatch tomato_project：生活"}}
+{"op":"config","ts":"2026-06-21T06:49:49.012Z","device":"win-mqhd9ket","session":"e5726170-768e-4ae3-98ff-0e220bef3925","seq":23,"payload":{"project":"","task":""}}
+{"op":"config","ts":"2026-06-21T06:49:51.947Z","device":"win-mqhd9ket","session":"db18d617-2f90-4f5f-bf0e-f3550dd62ec8","seq":24,"payload":{"mode":"countdown"}}
