@@ -1203,9 +1203,45 @@ class EntryModal extends Modal {
 
         new Setting(contentEl)
             .setName(this.plugin.t('panel.entry.project'))
-            .addText(text => {
-                text.setValue(this.result.project);
-                text.onChange(v => { this.result.project = v; });
+            .addButton(button => {
+                const noProjectLabel = this.plugin.t('panel.stats.noProject');
+                button.buttonEl.addClass('Tomato-project-select-trigger');
+
+                const renderTrigger = (value: string) => {
+                    const color = value ? projectColor(this.plugin, value) : '#9ca3af';
+                    const name = value || noProjectLabel;
+                    button.buttonEl.empty();
+                    button.buttonEl.createSpan({ cls: 'Tomato-project-dot', attr: { style: `background-color: ${color};` } });
+                    button.buttonEl.createSpan({ text: name });
+                };
+
+                button.onClick(() => {
+                    const menu = new Menu();
+                    menu.addItem(item => {
+                        const frag = document.createDocumentFragment();
+                        frag.createSpan({ cls: 'Tomato-project-dot', attr: { style: 'background-color: #9ca3af;' } });
+                        frag.appendText(noProjectLabel);
+                        item.setTitle(frag).onClick(() => {
+                            this.result.project = '';
+                            renderTrigger('');
+                        });
+                    });
+                    for (const proj of this.plugin.settings.projects) {
+                        menu.addItem(item => {
+                            const frag = document.createDocumentFragment();
+                            frag.createSpan({ cls: 'Tomato-project-dot', attr: { style: `background-color: ${proj.color};` } });
+                            frag.appendText(proj.name);
+                            item.setTitle(frag).onClick(() => {
+                                this.result.project = proj.name;
+                                renderTrigger(proj.name);
+                            });
+                        });
+                    }
+                    const rect = button.buttonEl.getBoundingClientRect();
+                    menu.showAtPosition({ x: rect.left, y: rect.bottom });
+                });
+
+                renderTrigger(this.result.project);
             });
 
         new Setting(contentEl)

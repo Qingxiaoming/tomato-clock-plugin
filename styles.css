@@ -464,6 +464,25 @@
     border-style: solid !important;
 }
 
+.Tomato-project-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #9ca3af;
+    margin-right: 6px;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+
+.Tomato-project-select-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 4px;
+    min-width: 120px;
+}
+
 
 
 /* =====================================================

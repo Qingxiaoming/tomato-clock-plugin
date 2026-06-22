@@ -431,7 +431,7 @@ export class TomatoTimerCompactView extends ItemView {
     }
 
     private showCountdownInlineEdit(): void {
-        const curSec = this.plugin.timer.getState().remainingSeconds;
+        const curSec = this.plugin.timer.getState().totalPhaseSeconds;
         const input = document.createElement('input');
         input.type = 'text';
         input.value = curSec > 0 ? String(Math.floor(curSec / 60)) : String(this.plugin.settings.countdownMinutes);
@@ -461,6 +461,8 @@ export class TomatoTimerCompactView extends ItemView {
         input.focus();
         input.select();
 
+        const originalText = this.timerDisplayEl.getText();
+
         let done = false;
 
         const finish = (save: boolean) => {
@@ -469,10 +471,12 @@ export class TomatoTimerCompactView extends ItemView {
             if (save) {
                 const seconds = this.parseCountdownInput(input.value);
                 if (seconds > 0) {
-                    this.plugin.timer.setCountdownSeconds(seconds);
                     this.plugin.timer.reset();
+                    this.plugin.timer.setCountdownSeconds(seconds);
                     this.timerDisplayEl.setText(this.fmtTime(seconds));
                 }
+            } else {
+                this.timerDisplayEl.setText(originalText);
             }
             if (input.parentElement) input.remove();
             this.plugin.refreshAllViews?.();
@@ -618,7 +622,7 @@ export class TomatoTimerCompactView extends ItemView {
         if (this.projectSelect.value !== state.currentProject) {
             this.projectSelect.value = state.currentProject;
         }
-        if (this.taskInput.value !== state.taskName) {
+        if (this.taskInput !== document.activeElement && this.taskInput.value !== state.taskName) {
             this.taskInput.value = state.taskName;
         }
 

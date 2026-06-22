@@ -42,6 +42,15 @@ export interface RecoveryData {
 
 export type TimerTickCallback = (state: TimerState) => void;
 export type PhaseCompleteCallback = (completed: PhaseType, next: PhaseType, durationMinutes: number) => void;
+export type DayCrossCallback = (payload: {
+    date: string;
+    startTime: string;
+    endTime: string;
+    duration: number;
+    mode: TimerMode;
+    taskName: string;
+    currentProject: string;
+}) => void;
 
 /**
  * 计时器核心状态
@@ -100,6 +109,7 @@ export class TomatoTimer {
 
     private onTickCb: TimerTickCallback | null = null;
     private onPhaseCb: PhaseCompleteCallback | null = null;
+    private onDayCrossCb: DayCrossCallback | null = null;
 
     // 核心状态
     private state: CoreState;
@@ -132,6 +142,7 @@ export class TomatoTimer {
 
     onTick(cb: TimerTickCallback): void { this.onTickCb = cb; }
     onPhaseComplete(cb: PhaseCompleteCallback): void { this.onPhaseCb = cb; }
+    onDayCross(cb: DayCrossCallback): void { this.onDayCrossCb = cb; }
 
     updateSettings(settings: TomatoTimerSettings): void {
         this.settings = settings;
@@ -345,6 +356,12 @@ export class TomatoTimer {
                 }
             }
 
+            // 恢复后若已跨天，立即结束前一天并开始新一天
+            if (this.checkDayCross()) {
+                this.handleDayCross();
+                return;
+            }
+
             this.startInterval();
         } else {
             this.state.segmentStartMs = 0;
@@ -390,6 +407,8 @@ export class TomatoTimer {
     }
 
     private tick(): void {
+        if (this.checkSpecialEvents()) return;
+
         if (this.state.mode === 'stopwatch') {
             this.notifyTick();
             this.scheduleTick();
@@ -442,6 +461,53 @@ export class TomatoTimer {
         this.state.cycleIndex = 0;
         this.state.accumulatedMs = 0;
         this.state.segmentStartMs = 0;
+    }
+
+    private todayString(): string {
+        const n = new Date();
+        return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+    }
+
+    private timeToMinutes(time: string): number {
+        const [h, m] = time.split(':').map(Number);
+        return h * 60 + m;
+    }
+
+    /** 检查闹钟、跨天等特殊事件；返回 true 表示已处理并中断当前 tick */
+    private checkSpecialEvents(): boolean {
+        return this.checkDayCross();
+    }
+
+    private checkDayCross(): boolean {
+        return this.state.status === 'running' && this.state.sessionDate !== '' && this.state.sessionDate !== this.todayString();
+    }
+
+    /** 跨天处理：结束前一天 phase 并立即开始新一天同一 mode */
+    private handleDayCross(): void {
+        this.stopInterval();
+
+        this.onDayCrossCb?.({
+            date: this.state.sessionDate,
+            startTime: this.state.sessionTime,
+            endTime: '23:59',
+            duration: 1440 - this.timeToMinutes(this.state.sessionTime),
+            mode: this.state.mode,
+            taskName: this.state.taskName,
+            currentProject: this.state.currentProject,
+        });
+
+        // 保留必要字段，模拟 stop 后立刻 start
+        const savedMode = this.state.mode;
+        const savedCompleted = this.state.completedTomatos;
+        const savedTask = this.state.taskName;
+        const savedProject = this.state.currentProject;
+
+        this.state = this.createIdleState(savedMode);
+        this.state.completedTomatos = savedCompleted;
+        this.state.taskName = savedTask;
+        this.state.currentProject = savedProject;
+
+        this.start();
     }
 
     /**

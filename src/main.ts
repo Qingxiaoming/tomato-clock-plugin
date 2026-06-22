@@ -1,6 +1,6 @@
 import { Notice, Plugin, TFile, normalizePath } from 'obsidian';
 import { TomatoTimer } from './timer';
-import type { PhaseType, TimerState } from './timer';
+import type { PhaseType, TimerState, DayCrossCallback } from './timer';
 import { TomatoTimerView, VIEW_TYPE_Tomato } from './timerView';
 import { TomatoTimerCompactView, VIEW_TYPE_Tomato_Compact } from './timerViewCompact';
 import { CalendarView, VIEW_TYPE_CALENDAR, settings as calendarSettings } from './calendar-extended';
@@ -69,6 +69,7 @@ export default class TomatoPlugin extends Plugin {
 
         this.timer.onTick(s => this.onTick(s));
         this.timer.onPhaseComplete((c, n, d) => { void this.onPhaseComplete(c, n, d); });
+        this.timer.onDayCross(payload => { void this.onDayCross(payload); });
 
         this.notificationService = new NotificationService(this);
         this.recoveryService = new RecoveryService(this);
@@ -285,6 +286,42 @@ export default class TomatoPlugin extends Plugin {
     private onTick(state: TimerState): void {
         this.refreshStatusBar(state);
         this.refreshAllViews();
+    }
+
+    private async onDayCross(payload: Parameters<DayCrossCallback>[0]): Promise<void> {
+        const entry = {
+            date: payload.date,
+            startTime: payload.startTime,
+            endTime: payload.endTime,
+            duration: payload.duration,
+            mode: payload.mode,
+            taskName: payload.taskName,
+        };
+        try {
+            await appendEntry(this.app, this.settings, entry);
+        } catch (e) {
+            new Notice(`${this.t('notice.logWriteFailed')}: ${e instanceof Error ? e.message : String(e)}`, 6000);
+        }
+
+        const state = this.timer.getState();
+        await this.syncService?.logPhaseComplete(state.phase, state.phase, entry.duration, {
+            date: entry.date,
+            startTime: entry.startTime,
+            endTime: entry.endTime,
+            duration: entry.duration,
+            mode: entry.mode,
+            taskName: entry.taskName,
+        });
+        await this.syncService?.logOp('start', {
+            mode: state.mode,
+            phase: state.phase,
+            project: payload.currentProject,
+            taskName: payload.taskName,
+            sessionDate: this.timer.getSessionStartDate(),
+            sessionTime: this.timer.getSessionStartTime(),
+        });
+
+        this.refreshLogViews();
     }
 
     private async onPhaseComplete(completed: PhaseType, _next: PhaseType, durationMinutes: number): Promise<void> {
