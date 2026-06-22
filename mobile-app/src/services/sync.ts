@@ -358,6 +358,9 @@ export class SyncService {
             patch.phase = 'stopwatch';
         } else {
             patch.phase = 'countdown';
+            if (session.countdownSec !== undefined) {
+                patch.countdownSec = session.countdownSec;
+            }
         }
 
         this.timer.applySyncState(patch);

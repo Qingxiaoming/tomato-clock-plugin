@@ -332,6 +332,9 @@ export class SyncService {
             patch.phase = 'stopwatch';
         } else {
             patch.phase = 'countdown';
+            if (session.countdownSec !== undefined) {
+                patch.countdownSec = session.countdownSec;
+            }
         }
 
         // 镜像远程会话时，把本地当前模式也设为远程模式
