@@ -25,3 +25,5 @@ AGENTS.md
 
 # runtime recovery state
 recovery.json
+
+timer-sync/
