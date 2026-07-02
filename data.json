@@ -1,0 +1,84 @@
+{
+  "workMinutes": 25,
+  "shortBreakMinutes": 5,
+  "longBreakMinutes": 15,
+  "cycles": 4,
+  "autoStartNextPhase": true,
+  "enableSound": true,
+  "enableOsNotification": true,
+  "logFolder": "Tomato Logs",
+  "enableDailyNoteLink": true,
+  "countdownMinutes": 25,
+  "language": "zh",
+  "projects": [
+    {
+      "name": "工作",
+      "color": "#2c66c3"
+    },
+    {
+      "name": "输入",
+      "color": "#26a9ab"
+    },
+    {
+      "name": "学习",
+      "color": "#31c966"
+    },
+    {
+      "name": "娱乐",
+      "color": "#c99931"
+    },
+    {
+      "name": "攻略",
+      "color": "#8ac92c"
+    },
+    {
+      "name": "生活",
+      "color": "#422ed6"
+    },
+    {
+      "name": "兴趣",
+      "color": "#9130c5"
+    },
+    {
+      "name": "日课",
+      "color": "#077005"
+    }
+  ],
+  "showStatusBar": true,
+  "statusBarMode": "simple",
+  "openLogOnComplete": true,
+  "calendarSnapMinutes": 5,
+  "compactCurrentTimeFontSize": 1.7,
+  "compactTimerFontSize": 1.8,
+  "compactCurrentTimeFontFamily": "霞鹜文楷",
+  "compactTimerFontFamily": "Khmer OS",
+  "compactDateFontFamilyCn": "霞鹜文楷",
+  "compactDateFontFamilyEn": "霞鹜文楷",
+  "calendarExtended": {
+    "shouldConfirmBeforeCreate": true,
+    "weekStart": "locale",
+    "wordsPerDot": 20000,
+    "showWeeklyNote": true,
+    "weeklyNoteFormat": "gggg-ww[w]",
+    "weeklyNoteTemplate": "",
+    "weeklyNoteFolder": "剑峰停云",
+    "monthlyNoteFormat": "YYYY-MM",
+    "monthlyNoteTemplate": "",
+    "monthlyNoteFolder": "剑峰停云",
+    "quarterlyNoteFormat": "YYYY-[Q]Q",
+    "quarterlyNoteTemplate": "",
+    "quarterlyNoteFolder": "剑峰停云",
+    "yearlyNoteFormat": "YYYY",
+    "yearlyNoteTemplate": "",
+    "yearlyNoteFolder": "剑峰停云",
+    "localeOverride": "system-default",
+    "language": "zh",
+    "dayStartsAt4AM": true
+  },
+  "syncDir": ".obsidian/plugins/tomato-clock/timer-sync",
+  "syncDeviceId": "4a42ab1f-9ae9-4cb4-8af2-a9d42b7ade27",
+  "syncRetentionDays": 30,
+  "syncLocal": {
+    "seq": 1
+  }
+}
